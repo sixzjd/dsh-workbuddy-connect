@@ -1,0 +1,13 @@
+# dsh-workbuddy-connect bundle patch.
+#
+# One row registers both halves: the host's client-module scan resolves a row's
+# specifier to its package root and reads `dsh.client` from package.json, so the
+# browser card loads from the same row that mounts the host provider. The plugin
+# registers the `workbuddy` / `workbuddy-ai` LLM routes itself (via
+# ctx.llm.registerAdapter); this patch only makes Cordis load the bundle. It
+# deliberately does NOT touch the profile's current default model — a fresh
+# install adds the model groups without changing what the user is currently
+# talking to.
+- insert:
+    - id: llm-workbuddy
+      name: dsh-workbuddy-connect
