@@ -48,12 +48,14 @@ DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协�
 前置条件：DSH 核心 `0.2.0-rc.2` 及以上；Node.js `^22.19.0 || >=24.0.0`。
 
 ```sh
+# 从 GitHub 安装（推荐）
+dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
+
 # 从本地目录安装（开发用）
 dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
-
-# 或从 npm 安装
-dsh plugin --profile web add dsh-workbuddy-connect
 ```
+
+> **别用 `add dsh-workbuddy-connect`。** npm 上这个名字**已被另一个插件占用**——`dsh-workbuddy-connect@0.7.9`（作者 `corrinehu`，2026-10-20 发布），那是另一套实现，装到的是它而不是本仓库。本插件只在 GitHub 上分发，安装请写全 `github:sixzjd/`。
 
 按你使用的 profile 换 `--profile` 的值（`web` / `desktop` / `tui`）。装到哪个 profile，数据就落在哪个 profile 目录里，web / desktop / tui 各自独立。
 
@@ -120,6 +122,28 @@ dsh plugin --profile web add dsh-workbuddy-connect
 3. **content 形状**：`content` 既可能是字符串，也可能是 `[{type:'text',text:…}]` 这样的数组块，**两种形态都会查**。只处理字符串的消毒器在数组形态下等于没生效。
 
 插件因此把这句话改写成 "You are an AI coding assistant."：system 消息整条替换，assistant 消息只改行首、**不动句中**（实测句中不拦），**user / tool 一律不碰**（那是你的原话，改了就是篡改对话），数组块只改 `text` 部分、保留图片等结构。国际版那条路径同样受益。
+
+**2026-10-24：这条校验升级成了指纹匹配**，同一份消毒只管首行不够了。国内网关（错误外壳同日新增了 `displayMsg`/`displayTips`「请求被拦截，请重新发送」）开始对**拼装后的整条 system 提示词做指纹比对**，而 0.2.1-rc.2 时代的系统提示词在首行之外又新增了两句自报家门的话——「The runtime context names the **DeepSeek Harness** implementation checkout.」和「You are interacting with the user through the **DeepSeek Harness** Web GUI…」。实测的边界（逐条测过，hy3 免费模型）：
+
+- 每一句**单独**发都放行（连 3 次出现也放行）；首行那句照旧被拒；
+- 完整提示词**确定性** 11128（重试三次全拦），把其中 "DeepSeek Harness" 改写掉就 200 放行；
+- 同样的句子放进 **user** 消息（1 条 3 次、2 条共 6 次）都放行——指纹只看 system；
+- 失败片段二分到 1.7KB 连续原文才中、对半拆开各自都过——匹配的是提示词的**原文片段**，不是单个短语。
+
+所以消毒表加了一条兜底：**system 消息里残留的 "DeepSeek Harness" 一律改写成 "DSH"**（排在首行那条之后，首行仍优先用更自然的整句替换），assistant 行首同样覆盖。user / tool 依旧一字不动（实测 6 处 user 提及不触发）。
+
+**2026-10-25 补记：只改 system 不够——扫描覆盖了全部消息**。次日重启后同一会话仍被拦（requestId 换了新的），而系统提示词已被消毒、进程确认加载了新代码。差异在**历史**：那是个五天的插件调试会话，最后一次成功压缩停在 turn 2，此后 1166 条消息（约 0.95 MB）整个在窗口里，其中 **assistant 消息含 91 处、"tool" 结果含 75 处 "DeepSeek Harness"**（模型读过并复述了本插件的源码和探针脚本）。结论：指纹扫描现在到达全转录本，于是这条兜底标记为 `"deep"`——在 **assistant 句中与 tool 结果里也改写**（assistant 记录的 `tool_calls[].function.arguments` 一并覆盖，模型用编辑工具写文件时参数里同样带这个词）；**user 消息仍然一字不动**（10-24 实测 user 侧多处提及、system 干净时放行，且那是人的原话）。代价是诚实说明的：assistant/tool 里的改动只是把同一实体的名字换掉，不碰语义，但历史与模型当初看到的文本不再逐字一致——这是「整条国内线路拒绝」与「历史里换个名字」之间的取舍。
+
+**2026-10-25 再补记：deep 改写生效后仍被拦——第二堵墙是上下文窗口虚报**。用重建的真实历史复现：真实系统提示词单独发**通过**（消毒有效），加上真实历史后失败——但错误码变成了 **11115**（新码），而且把 assistant/tool/user 全部改写后**依然失败**，说明这一层与指纹无关。按规模二分（免费模型 hy3）：最后 100 条（约 80KB）2.8 秒通过、300 条（约 250KB）8.3 秒通过、600 条（约 470KB）连接直接挂起、全量（约 0.95MB）快速回 11115——**过了模型真实窗口，上游要么挂起要么拒绝**。根因在目录解析：两个部署对容量的描述不同——国际版 `/v3/config` 产品文档带 `contextWindow` 对象（deepseek-v4.1-flash **默认 300000**、最大 1000000），而国内 CLI 文档只有 `maxInputTokens`，且 deepseek 行给的是**最大值** 1000000。解析器对国内行直接拿 `maxInputTokens` 当窗口报给宿主——报大了 3-5 倍；宿主的压缩引擎阈值是声明窗口的 0.8，声明 1M 就永远不压缩，五天历史原样发。修复：国内行对有官方默认声明的 id 取默认值（`DEFAULT_CONTEXT_WINDOWS` 表，值来自 2026-10-25 实测的国际版文档；表外 id 维持原行为——hy3 的 192000 本来就两边一致）。修复后 deepseek 报 300k，压缩引擎在约 10 万 token 就主动压缩，请求始终在可投递范围内；那个卡死的会话在重启后第一条消息就会触发压缩自愈。
+
+**2026-10-31 补记：上面两处的结论都被后续实测部分推翻**。用超大 body 直接问网关（免费模型，请求被拒时不产生输出），网关自己在 `11115` 里报出「测得多少 token / 执行的上限是多少」，于是三件事第一次有了准数：
+
+- **「285KB 以上会挂起」是误判**。同一条线路实测：512KB 8.5 秒、819KB 19 秒、**1.2MB 23 秒、2MB 4.5 秒**全部正常应答，唯一的拒绝理由是 **token 超限**，且报错精确到个位（`prompt is too long: 1200515 tokens > 1048576 maximum`）。当年那个「卡死」其实是撞上了模型的 token 上限。于是 `MAX_DELIVERABLE_BODY_BYTES` 从 350KB 改为 **16MiB**（可用 `DSH_WORKBUDDY_MAX_BODY_BYTES` 覆盖）——它从此只是传输保护，窗口由上游按 token 执行，而 `11115` 本来就已经被改写成宿主能压缩的那种错误。350KB 的旧值危害是具体的：它在约 9 万 token 处**本地伪造 400**（2ms 返回、`inputTokens: 0`，根本没出门），而压缩请求自身同样超限，于是会话既发不出去也压不了。
+- **窗口两个方向都报错了**。`deepseek-v4.1-flash` 与 `kimi-k3.1-pro` 网关实际执行 **1048576**（目录只报 300000，白扔 3.5 倍容量）；而 `hy3`（192000）与 `minimax-m3.1-flash`（300000）实际只给 **100000**——**多报**更糟：宿主压缩阈值是声明窗口的 0.8，声明 192000 就要到 153600 才压，而墙在 100000，于是永远撞墙在压缩之前，压缩请求本身又被同样拒绝，这就是「压缩也压缩不了」的机制。修复在 `catalog.all()` 里加 `MEASURED_CONTEXT_WINDOWS` 覆盖（必须在这一层：磁盘上已保存的目录里，错数字已经烤进 `contextWindow` 字段）。
+- **网关不把 `max_tokens` 算进窗口**。CN hy3 实测 `prompt≈70000 + max_tokens=64000`（合计 134000 > 100000）**仍然通过**，所以 128000 的输出预留不会吃掉窗口，按 1048576 声明是安全的。
+- **新的 11128 指纹：这条必须标 `deep`**。国内网关还会按内容指纹拦 harness 的**路径解析段落**（`Tokens prefixed with @ … Relative paths resolve from the workspace root;`），它不含任何产品名，所以 `DeepSeek Harness → DSH` 那条兜底碰不到它。逐句二分：两句**单独**发都放行，只有**紧邻**才被拦。作用域实测与上面那条产品名的规则**不同**——system 与 assistant（**句中同样拦**，不只是行首）会被拦，而 **tool 结果不拦**；非 `deep` 只改写 assistant 行首，句中漏网就等于「模型转述一次，后续每一轮都被拒」，所以这一行标成 `deep`。user 消息照旧不碰（实测多处提及均放行）。
+
+国际版另有一类与体积无关的拒绝：`kimi-k3.1-pro` / `kimi-k3.1-pro-highspeed` 回 **11158**（`not allowed for user type [personal]`），是账号类型授权，声明窗口改不动它。
 
 **渠道身份会自己过期**：客户端身份里的版本号来自本机桌面版，而桌面版会自己升级（实测当晚 5.7.6 → 5.8.4、CLI 2.156.0 → 2.161.0）。所以身份每 10 分钟重新解析一次，而不是进程启动时定死——否则 App 升了级，宿主还在拿旧版本号冒充客户端。
 

@@ -22,6 +22,7 @@ import {
   withPromptCacheKey,
 } from '../lib/upstream.js'
 import { fallbackFor, WorkBuddyCatalog } from '../lib/catalog.js'
+import { MAX_DELIVERABLE_BODY_BYTES } from '../lib/shim.js'
 import { modelIdentityKeysOf, WORKBUDDY_VARIANTS } from '../lib/variants.js'
 import { deriveAtRestKey, deriveAtRestKeyId, isEncryptedFieldWrapper, openEncryptedField } from '../lib/atrest.js'
 
@@ -107,13 +108,29 @@ check('rewrites the harness identity out of the opening line', () => {
   const first = body.messages[0].content.split('\n')[0]
   assert.equal(first.startsWith('You are an AI agent powered by DeepSeek Harness'), false)
 })
-check('leaves a harness identity that is not the opening line alone', () => {
-  // The upstream check is a prefix on the first line, so the same phrase
-  // further down the message is not a channel violation.
+check('rewrites the product name out of a system message anywhere', () => {
+  // 2026-10-24: the CN check fingerprint-matches the assembled system prompt,
+  // so a product mention that survives the first-line rewrite still refuses
+  // the request (measured: the assembled prompt fails deterministically with
+  // the name intact and streams with it rewritten, while each sentence alone
+  // passes — the match needs the prompt's own wording).
   const body = JSON.parse(prepareChatBody(JSON.stringify({
     messages: [{ role: 'system', content: 'Context first.\nYou are an AI agent powered by DeepSeek Harness.' }],
   })))
-  assert.equal(body.messages[0].content.includes('You are an AI agent powered by DeepSeek Harness'), true)
+  assert.equal(body.messages[0].content.includes('DeepSeek Harness'), false)
+})
+check('rewrites the product name out of the runtime-context and GUI sentences', () => {
+  // The two sentences the 0.2.1-rc.2-era prompt added beyond the opening line;
+  // both name the product and both must go.
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [{
+      role: 'system',
+      content: 'The runtime context names the DeepSeek Harness implementation checkout. Use this checkout only to inspect or extend DSH itself.\n\nYou are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names.',
+    }],
+  })))
+  assert.equal(body.messages[0].content.includes('DeepSeek Harness'), false)
+  assert.equal(body.messages[0].content.includes('DSH implementation checkout'), true)
+  assert.equal(body.messages[0].content.includes('DSH Web GUI'), true)
 })
 check('rewrites the marker on the opening line of an assistant message', () => {
   // A reply that quotes its own instructions poisons the history for every
@@ -137,6 +154,46 @@ check('leaves a marker mid-sentence in an assistant message alone', () => {
     ],
   })))
   assert.equal(body.messages[0].content.startsWith('Here is a note.'), true)
+})
+check('rewrites the product name mid-sentence in an assistant message', () => {
+  // 2026-10-25: the whole transcript is scanned, so a long session whose
+  // replies quote this plugin's source stays refused even with a sanitized
+  // system message — the product name goes everywhere in an assistant message.
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'assistant', content: 'The runtime context names the DeepSeek Harness implementation checkout.' },
+    ],
+  })))
+  assert.equal(body.messages[0].content.includes('DeepSeek Harness'), false)
+})
+check('rewrites the product name inside a tool result', () => {
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'user', content: 'read the file' },
+      { role: 'assistant', content: 'ok', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"path":"a.md"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: 'line1\nThe DeepSeek Harness Web GUI URL is set here.\nline3' },
+    ],
+  })))
+  assert.equal(body.messages[2].content.includes('DeepSeek Harness'), false)
+  assert.equal(body.messages[2].content.includes('DSH Web GUI'), true)
+})
+check('rewrites the product name inside recorded tool-call arguments', () => {
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'edit', arguments: '{"new_string":"the DeepSeek Harness Web GUI"}' } }] },
+    ],
+  })))
+  assert.equal(body.messages[0].tool_calls[0].function.arguments.includes('DeepSeek Harness'), false)
+})
+check('leaves the product name in a user message alone', () => {
+  // The human's own words stay verbatim; user-side mentions do not trip the
+  // check (measured 2026-10-24 alongside a clean system message).
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'user', content: '为什么 DeepSeek Harness 被拦？' },
+    ],
+  })))
+  assert.equal(body.messages[0].content.includes('DeepSeek Harness'), true)
 })
 check('never rewrites a user message', () => {
   // The same phrase in the human's own words is theirs; rewriting it would
@@ -272,6 +329,24 @@ check('normalizes a rate with a unit word', () => {
   assert.equal(normalizeCredits('x0.05 credits'), 'x0.05')
   assert.equal(normalizeCredits('x0.79'), 'x0.79')
   assert.equal(normalizeCredits('nope'), undefined)
+})
+check('a CN deepseek row reports the official default window, not the maximum', () => {
+  // The CN CLI document carries only maxInputTokens (1000000 for deepseek),
+  // while the product document's default — what the official client requests
+  // at — is 300000. Reporting the maximum let a five-day session grow past
+  // 300k tokens with the compaction engine asleep (its threshold is 0.8 of
+  // the declared window); every send was then refused or hung upstream
+  // (measured 2026-10-25).
+  const models = parseModelCatalog(CATALOG, false)
+  assert.equal(models.find(m => m.id === 'deepseek-v4.1-flash').contextWindow, 300000)
+})
+check('a CN row whose maximum equals the declared default keeps it', () => {
+  const models = parseModelCatalog(CATALOG, false)
+  assert.equal(models.find(m => m.id === 'hy3').contextWindow, 192000)
+})
+check('a CN id without a declared default keeps its maxInputTokens', () => {
+  const models = parseModelCatalog(CATALOG, false)
+  assert.equal(models.find(m => m.id === 'singular').contextWindow, 1000)
 })
 check('rejects a catalog with no cli agent', () => {
   assert.throws(() => parseModelCatalog({ models: [] }, true), /cli agent/)
@@ -528,6 +603,112 @@ check('an envelope for another key is refused', () => {
 check('a plain string is not an encrypted wrapper', () => {
   assert.equal(isEncryptedFieldWrapper('token'), false)
   assert.equal(isEncryptedFieldWrapper({ $wbEncrypted: 1, envelope: 'x' }), true)
+})
+
+console.log('measured ceilings')
+// The gateway enforces a per-request prompt ceiling that disagrees with the
+// catalog row in BOTH directions, and the disagreement is what strands a
+// session: over-declaring puts the hard wall below the host's compaction
+// threshold (0.8 of the declared window), so the send fails and the compaction
+// request fails the same way. Values are the ceilings the CN/global gateways
+// reported enforcing themselves (`prompt is too long: N tokens > M maximum`),
+// measured 2026-10-28 and re-measured 2026-10-31 against the live service.
+const PATH_PAIR = 'Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root;'
+check('a measured ceiling outranks an under-declared catalog row', () => {
+  const catalog = new WorkBuddyCatalog({ region: 'cn' })
+  catalog.set(parseModelCatalog(CATALOG, false), 'live')
+  const deepseek = catalog.all().find(m => m.id === 'deepseek-v4.1-flash')
+  // The row and the parse step both say 300000; the gateway grants 1048576.
+  assert.equal(deepseek.contextWindow, 1_048_576)
+})
+check('a measured ceiling also corrects an OVER-declared row', () => {
+  const catalog = new WorkBuddyCatalog({ region: 'cn' })
+  catalog.set(parseModelCatalog(CATALOG, false), 'live')
+  // hy3 advertises 192000 and is refused at 100000: declaring 192000 means the
+  // compaction threshold (153600) never fires before the wall.
+  assert.equal(catalog.all().find(m => m.id === 'hy3').contextWindow, 100_000)
+})
+check('an id with no measurement keeps the parsed row', () => {
+  const catalog = new WorkBuddyCatalog({ region: 'cn' })
+  catalog.set(parseModelCatalog(CATALOG, false), 'live')
+  assert.equal(catalog.all().find(m => m.id === 'singular').contextWindow, 1000)
+})
+check('the maximum-window toggle cannot lower a measured ceiling', () => {
+  const models = parseModelCatalog(CATALOG, true)
+  const catalog = new WorkBuddyCatalog({ region: 'global' })
+  catalog.set(models, 'live')
+  catalog.useMaximumContextWindow = true
+  assert.equal(catalog.all().find(m => m.id === 'deepseek-v4.1-flash').contextWindow, 1_048_576)
+})
+check('the local body gate cannot shrink back to a byte guess', () => {
+  // The gate exists to stop a session being stranded: at 350KB it fabricated a
+  // 400 `context_length_exceeded` WITHOUT contacting the gateway (measured
+  // 2026-10-25: the failure carried `inputTokens: 0` and returned in ~2ms), at
+  // roughly 90k tokens of real content — a tenth of what the gateway serves.
+  // Compaction then failed the same way, because a compaction request carries
+  // the same oversized history. Measured 2026-10-28/31 on both live gateways:
+  // 1.2MB streams, 2MB is answered in 4.5s, and the only refusals are
+  // token-budget ones the shim already re-spells into the compaction error.
+  // So this bound is a transport sanity limit; the token ceiling is the
+  // upstream's job. 16MiB clears a full 1048576-token window at any realistic
+  // bytes-per-token ratio, and stays under the 32MiB transport cap.
+  assert.ok(MAX_DELIVERABLE_BODY_BYTES >= 16 * 1024 * 1024, `body gate regressed to ${MAX_DELIVERABLE_BODY_BYTES}`)
+  assert.ok(MAX_DELIVERABLE_BODY_BYTES <= 32 * 1024 * 1024, 'body gate exceeds the transport cap')
+})
+
+console.log('channel fingerprint: the path-resolution pair')
+// 2026-10-31, live CN gateway: the pair is refused in a system message, at an
+// assistant LINE START, and — the case that a non-deep row misses — mid-sentence
+// inside an assistant message. A tool result is answered 200, so rewriting there
+// is accepted over-reach (no narrower scope reaches assistant mid-sentence).
+check('the pair is rewritten in a system message', () => {
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [{ role: 'system', content: `Rules:\n${PATH_PAIR}` }, { role: 'user', content: 'hi' }],
+  })))
+  assert.ok(!JSON.stringify(body).includes(PATH_PAIR), 'system pair survived sanitization')
+})
+check('the pair is rewritten MID-SENTENCE in an assistant message', () => {
+  // This is the regression the `deep` scope exists for: the model quoting the
+  // paragraph inside a reply poisons every later turn of the conversation, and
+  // a line-start-only rewrite leaves it untouched.
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'system', content: 'You are an AI coding assistant.' },
+      { role: 'user', content: 'explain the path rules' },
+      { role: 'assistant', content: `Sure — note that ${PATH_PAIR} That is the rule.` },
+      { role: 'user', content: 'ok' },
+    ],
+  })))
+  assert.ok(!JSON.stringify(body).includes(PATH_PAIR), 'assistant mid-sentence pair survived sanitization')
+})
+check('the pair is deliberately left inside an assistant tool-call argument', () => {
+  // Measured 2026-10-31 on the live CN gateway: a body whose tool-call
+  // `arguments` carry the pair is answered 200, both raw and sanitized — the
+  // scan does not reach arguments for this marker, so the sanitizer does not
+  // rewrite it there. This differs from the `DeepSeek Harness` marker above it,
+  // which IS rewritten in arguments because the gateway does read that one
+  // there. The asymmetry is evidence-backed rather than an oversight: replacing
+  // a product name costs nothing, while rewriting a whole paragraph inside a
+  // recorded `write` payload would corrupt what the model actually put in the
+  // file. If the gateway ever starts scanning arguments for this pair, the fix
+  // is adding it to that existing arguments pass — this check is what makes the
+  // change deliberate instead of accidental.
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [
+      { role: 'system', content: 'You are an AI coding assistant.' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'write', arguments: `{"content":"${PATH_PAIR}"}` } }] },
+      { role: 'user', content: 'ok' },
+    ],
+  })))
+  assert.ok(body.messages[1].tool_calls[0].function.arguments.includes(PATH_PAIR), 'tool-call arguments were rewritten, but the gateway does not check them')
+})
+check('user messages are still left verbatim', () => {
+  // The gateway does not read the pair from a user role (measured 2026-10-31:
+  // 8 mentions in one user message pass), and this is the human's own text.
+  const body = JSON.parse(prepareChatBody(JSON.stringify({
+    messages: [{ role: 'system', content: 'You are an AI coding assistant.' }, { role: 'user', content: `${PATH_PAIR} ${PATH_PAIR}` }],
+  })))
+  assert.ok(body.messages[1].content.includes(PATH_PAIR), 'user text was altered')
 })
 
 console.log(`\n${passed} checks passed`)

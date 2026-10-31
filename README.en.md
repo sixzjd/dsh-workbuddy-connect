@@ -48,12 +48,14 @@ DSH (pi-ai)  ──OpenAI──▶  127.0.0.1 shim  ──WorkBuddy──▶  ga
 Requires DSH core `0.2.0-rc.2` or newer, and Node.js `^22.19.0 || >=24.0.0`.
 
 ```sh
+# install from GitHub (recommended)
+dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
+
 # from a local checkout (development)
 dsh plugin --profile web add "file:/absolute/path/接入workbuddy"
-
-# or from npm
-dsh plugin --profile web add dsh-workbuddy-connect
 ```
+
+> **Do not use `add dsh-workbuddy-connect`.** That npm name is **taken by a different plugin** — `dsh-workbuddy-connect@0.7.9` (author `corrinehu`, published 2026-10-20) is a separate implementation, so the bare name installs it, not this repository. This connector is distributed on GitHub only; always spell out `github:sixzjd/`.
 
 Swap `--profile` for the profile you use (`web` / `desktop` / `tui`). The data lands in that profile's directory; web, desktop and tui stay independent.
 
