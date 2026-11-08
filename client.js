@@ -64,6 +64,7 @@ window.__ModuleLoader__.load({
       failed: "操作失败",
       signedOutHint: "登录后才会出现模型分组。",
       sessionStale: "上游拒绝了这份凭据：桌面 App 换过会话了。点「从桌面 App 导入」重新接入，或重新登录。",
+      accountRestricted: "上游已限制这个账号（不是凭据问题，重新登录或重新导入都无效）。只有申诉才能解除：在 WorkBuddy 里提交反馈。",
       tabGlobal: "国际版",
       tabCN: "国内版",
     };
@@ -114,6 +115,7 @@ window.__ModuleLoader__.load({
       failed: "Action failed",
       signedOutHint: "The model group appears after you sign in.",
       sessionStale: "The upstream refused this credential — the desktop app rotated its session. Press “Import from the desktop app” again, or sign in once more.",
+      accountRestricted: "The upstream has restricted this account — this is not a credential problem, so signing in or importing again will not help. Only an appeal lifts it: submit feedback in WorkBuddy.",
       tabGlobal: "Global",
       tabCN: "China",
     };
@@ -353,7 +355,10 @@ window.__ModuleLoader__.load({
                     : null)),
           auth?.state === "signed-in" ? h("div", { className: "wb-note", style: { marginTop: 4 } },
             [auth.domain ? `${L.domain}: ${auth.domain}` : null, auth.expiresAt ? ` · ${L.expires}: ${timeText(auth.expiresAt)}` : null].filter(Boolean).join("")) : null,
-          auth?.sessionStale === true ? h("div", { className: "wb-error", style: { marginTop: 4 } }, L.sessionStale) : null,
+          auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
+            L.accountRestricted,
+            h("div", { className: "wb-note", style: { marginTop: 2 } }, String(auth.accountRestricted))) : null,
+          auth?.sessionStale === true && !auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } }, L.sessionStale) : null,
           auth?.state !== "signed-in" ? h("div", { className: "wb-note", style: { marginTop: 4 } }, L.signedOutHint) : null,
           auth?.reason ? h("div", { className: "wb-error", style: { marginTop: 4 } }, auth.reason) : null,
           login ? h("div", { className: "wb-row", style: { marginTop: 8 } },

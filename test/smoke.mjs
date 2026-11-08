@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { createCipheriv } from 'node:crypto'
 import {
   classifyUpstreamError,
+  describeAccountRestriction,
   modelWithCurrentPromotion,
   normalizeCredits,
   normalizeCreditsDocument,
@@ -521,6 +522,53 @@ check('a plain 429 is a soft rate limit', () => {
 })
 check('a gateway html 401 is a dead session', () => {
   assert.equal(classifyUpstreamError(401, '<html><head><title>401 Authorization Required</title></head></html>'), 'session_dead')
+})
+
+// Captured 2026-11-08. The international deployment refused a *freshly
+// refreshed* token with this body, and the same account was refused inside the
+// official WorkBuddy desktop app, so the credential and the client were both
+// fine: the restriction lives on the account. Re-authenticating cannot clear
+// it, which is why it must not be reported as a dead session.
+const ACCOUNT_RESTRICTED_11140 = JSON.stringify({
+  code: 11140,
+  msg: 'request illegal',
+  displayMsg: {
+    en: 'Your account has been restricted due to unusual activity',
+    zh: '账号存在异常行为，已被限制使用',
+  },
+  displayTips: {
+    en: 'We detected unusual activity on this account. Submit feedback to appeal this restriction',
+    zh: '系统检测到该账号存在异常使用行为，如需申诉请提交反馈',
+  },
+  actions: ['SUBMIT_FEEDBACK'],
+})
+check('11140 is an account restriction, not a dead session', () => {
+  assert.equal(classifyUpstreamError(403, ACCOUNT_RESTRICTED_11140), 'account_restricted')
+})
+check('a restriction is recognised whatever the http status', () => {
+  // The same body arrives on 403 today; a future release could move it.
+  assert.equal(classifyUpstreamError(400, ACCOUNT_RESTRICTED_11140), 'account_restricted')
+  assert.equal(classifyUpstreamError(429, ACCOUNT_RESTRICTED_11140), 'account_restricted')
+})
+check('the restriction body explains itself in the user’s own words', () => {
+  const reason = describeAccountRestriction(ACCOUNT_RESTRICTED_11140)
+  assert.match(reason, /账号存在异常行为/)
+  // The appeal hint matters more than the refusal: it is the only way out.
+  assert.match(reason, /申诉/)
+})
+check('a restriction hidden in prose is still recognised', () => {
+  // No envelope code, only the text (an older gateway spelling).
+  assert.equal(
+    classifyUpstreamError(403, '{"message":"Your account has been restricted due to unusual activity"}'),
+    'account_restricted',
+  )
+})
+check('a 403 without the restriction markers stays a dead session', () => {
+  // The rotation hint must survive: it is the common, actionable 403.
+  assert.equal(classifyUpstreamError(403, '{"code":40003,"msg":"token expired"}'), 'session_dead')
+})
+check('an unknown code never silently becomes a restriction', () => {
+  assert.equal(describeAccountRestriction('{"code":99999,"msg":"nope"}'), undefined)
 })
 
 console.log('catalog store')
