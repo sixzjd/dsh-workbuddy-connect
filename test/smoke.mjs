@@ -1013,6 +1013,19 @@ await checkAsync('a lockfile with no resolved commit reports unknown', async () 
   assert.equal(report.state, 'unknown')
   assert.match(report.reason, /lockfile/)
 })
+check('a profile still declaring the old unscoped name is understood', async () => {
+  // The package was renamed when it was published to a registry (the unscoped
+  // name belongs to somebody else there). A profile installed before that keeps
+  // the old key, and failing to read it would report "unknown" for a working
+  // installation — the card then offers nothing while an update may be waiting.
+  const dir = profileWith(
+    { 'dsh-workbuddy-connect': `github:sixzjd/dsh-workbuddy-connect#${SHA_A}` },
+    `importers:\n\n  .:\n    dependencies:\n      dsh-workbuddy-connect:\n        specifier: x\n        version: git+https://github.com/sixzjd/dsh-workbuddy-connect.git#${SHA_A}\n`,
+  )
+  const local = readLocalState(dir)
+  assert.equal(local.installSpec, `github:sixzjd/dsh-workbuddy-connect#${SHA_A}`)
+  assert.equal(local.installed, SHA_A)
+})
 check('readLocalState reports the pin but not a guessed install', () => {
   // The manifest states the request; only the lockfile states the result. With
   // no lockfile the pin is still worth showing, but `installed` must stay

@@ -539,7 +539,9 @@ window.__ModuleLoader__.load({
     }
 
     /** The package name this card belongs to, as the plugin page reports it. */
-    const PACKAGE_NAME = "dsh-workbuddy-connect";
+    const PACKAGE_NAME = "@sixzjd/dsh-workbuddy-connect";
+    /** Names an existing profile may still declare from before the rename. */
+    const LEGACY_PACKAGE_NAMES = ["dsh-workbuddy-connect"];
 
     /**
      * The per-process control key for the update route.
@@ -581,7 +583,7 @@ window.__ModuleLoader__.load({
      */
     function UpdateActions({ subject, L, manager }) {
       const pkg = subject?.kind === "bundle" ? subject.pkg : undefined
-      const mine = pkg?.name === PACKAGE_NAME && pkg?.installed === true;
+      const mine = (pkg?.name === PACKAGE_NAME || LEGACY_PACKAGE_NAMES.includes(pkg?.name)) && pkg?.installed === true;
       const [report, setReport] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [message, setMessage] = React.useState(null);
