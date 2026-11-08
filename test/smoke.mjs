@@ -71,6 +71,32 @@ async function checkAsync(name, fn) {
   }
 }
 
+console.log('manifest')
+
+check('the version is valid semver', async () => {
+  // The plugin page prints this string, and a registry install refuses a
+  // package whose version is not semver. Asserted here so a hand-edit is
+  // caught before anything depends on it.
+  const { readFileSync } = await import('node:fs')
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, `not semver: ${manifest.version}`)
+})
+check('the card reads its version from the manifest, not a second literal', async () => {
+  // A literal beside package.json is two sources for one fact; the card then
+  // reports a version the installed files do not have.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
+})
+check('the client declares the primitives it renders with', async () => {
+  // `Button` comes from the shared package; a bundle that requires it without
+  // declaring it resolves or not depending on the host's module map.
+  const { readFileSync } = await import('node:fs')
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const injected = manifest.dsh?.client?.inject ?? []
+  assert.ok(injected.includes('@deepseek-ai/dsh-client-ui-primitives'), 'dsh.client.inject is missing the primitives package')
+})
+
 console.log('region')
 check('workbuddy.ai is global', () => assert.equal(regionOf('workbuddy.ai'), 'global'))
 check('codebuddy.ai is global', () => assert.equal(regionOf('codebuddy.ai'), 'global'))

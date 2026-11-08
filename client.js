@@ -3,6 +3,13 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require("react");
     const h = React.createElement;
+    // The plugin page's own primitives, so a contributed action is the same
+    // component, size and icon as the page's built-in Update button rather than
+    // a lookalike that drifts when the page's design changes.
+    const {
+      Button,
+      IconRefreshOutlineRegular,
+    } = require("@deepseek-ai/dsh-client-ui-primitives");
     window.__WB_ERR__ = window.__WB_ERR__ || [];
     const note = (where, error) => {
       try {
@@ -167,6 +174,10 @@ window.__ModuleLoader__.load({
       .wb-badge.wb-free{color:var(--dsw-alias-state-success-primary,#2f9e44);border-color:currentColor}
       .wb-input,.wb-button{height:30px;padding:0 10px;color:var(--dsw-alias-label-primary,#25252a);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,#d4d6db);border-radius:var(--dsw-radius-md,8px);font:inherit;font-size:13px}
       .wb-input{flex:1;min-width:160px}
+      .wb-update-action{display:inline-flex;align-items:center;gap:8px;min-width:0}
+      .wb-update-note{color:var(--dsw-alias-label-tertiary,#9a9aa3);font-size:12.5px;line-height:18px;white-space:nowrap}
+      .wb-update-note-info{color:var(--dsw-alias-state-business-primary,#4176e6)}
+      @media (max-width:720px){.wb-update-note{display:none}}
       .wb-button{cursor:pointer;white-space:nowrap}
       .wb-button:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
       .wb-button:disabled{opacity:.5;cursor:default}
@@ -623,26 +634,28 @@ window.__ModuleLoader__.load({
       if (!mine) return null;
 
       const state = report?.state;
-      return h(React.Fragment, null,
-        state === "behind"
-          ? h("button", {
-              type: "button",
-              className: "wb-button wb-primary",
-              disabled: busy,
-              onClick: () => void apply(),
-              title: report.targetSpec ?? "",
-            }, busy ? L.updateRunning : L.updateApply)
-          : h("button", {
-              type: "button",
-              className: "wb-button",
-              disabled: busy,
-              onClick: () => void check(true),
-            }, busy ? L.updateChecking : L.updateCheck),
-        state === "behind" ? h("span", { className: "wb-badge wb-good" }, L.updateAvailable) : null,
-        state === "current" ? h("span", { className: "wb-badge" }, L.updateCurrent) : null,
-        message !== null ? h("div", { className: "wb-note", style: { marginTop: 4 } }, message) : null,
-        report?.state === "local-copy" ? h("div", { className: "wb-note", style: { marginTop: 4 } }, L.updateLocalCopy) : null,
-        report?.state === "unknown" ? h("div", { className: "wb-note", style: { marginTop: 4 } }, `${L.updateUnknown}${report.reason ?? ""}`) : null,
+      // The page's own Update control is `Button variant="outline" size="sm"`
+      // with the refresh glyph; an available version is offered as `primary`.
+      // Matching both keeps this action reading as part of the page.
+      const behind = state === "behind";
+      return h("span", { className: "wb-update-action" },
+        h(Button, {
+          variant: behind ? "primary" : "outline",
+          size: "sm",
+          icon: h(IconRefreshOutlineRegular, { size: 13 }),
+          disabled: busy,
+          title: behind ? (report.targetSpec ?? undefined) : undefined,
+          "aria-label": behind ? L.updateApply : L.updateCheck,
+          onClick: () => void (behind ? apply() : check(true)),
+        }, busy ? (behind ? L.updateRunning : L.updateChecking) : (behind ? L.updateApply : L.updateCheck)),
+        // The badge carries the same meaning the page's own "Update available"
+        // tag does, so it is rendered as text beside the action rather than as
+        // a second control.
+        behind ? h("span", { className: "wb-update-note wb-update-note-info" }, L.updateAvailable) : null,
+        state === "current" ? h("span", { className: "wb-update-note" }, L.updateCurrent) : null,
+        message !== null ? h("span", { className: "wb-update-note" }, message) : null,
+        state === "local-copy" ? h("span", { className: "wb-update-note" }, L.updateLocalCopy) : null,
+        state === "unknown" ? h("span", { className: "wb-update-note" }, `${L.updateUnknown}${report.reason ?? ""}`) : null,
       );
     }
 

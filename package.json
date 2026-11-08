@@ -3,7 +3,7 @@
   "displayName": "WorkBuddy",
   "description": "将 WorkBuddy（国际版 / 国内版）的模型接入 DeepSeek Harness — bring WorkBuddy (Global & CN) models into DeepSeek Harness.",
   "icon": "./assets/icon.svg",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "sunzhengnan",
   "keywords": [
     "dsh-plugin",
@@ -16,8 +16,12 @@
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": { "default": "./lib/index.js" },
-    "./client": { "default": "./client.js" },
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
@@ -38,11 +42,14 @@
   },
   "license": "MIT",
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-slots"
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives"
       ]
     }
   },
