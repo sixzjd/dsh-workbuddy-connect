@@ -837,6 +837,53 @@ check('the codeload tarball form is read too', () => {
   const lock = `importers:\n\n  .:\n    dependencies:\n      dsh-workbuddy-connect:\n        specifier: github:sixzjd/dsh-workbuddy-connect#${SHA_B}\n        version: https://codeload.github.com/sixzjd/dsh-workbuddy-connect/tar.gz/${SHA_B}\n      other-package:\n        specifier: ^1.0.0\n        version: 1.0.0\n`
   assert.equal(installedCommitFromLock(lock), SHA_B)
 })
+check('six-space indentation is parsed, and never leaks a neighbour', () => {
+  // pnpm's real output indents importer entries by six spaces. A pattern that
+  // only accepted two silently widened to the whole file and reported the
+  // NEIGHBOURING package's commit — a wrong answer that looks authoritative.
+  const lock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      dsh-opencode-connect:
+        specifier: github:sixzjd/dsh-opencode-connect#${SHA_B}
+        version: https://codeload.github.com/sixzjd/dsh-opencode-connect/tar.gz/${SHA_B}
+      dsh-workbuddy-connect:
+        specifier: github:sixzjd/dsh-workbuddy-connect#${SHA_A}
+        version: https://codeload.github.com/sixzjd/dsh-workbuddy-connect/tar.gz/${SHA_A}
+      dsh-qoder-connect:
+        specifier: 0.2.15
+        version: 0.2.15
+`
+  assert.equal(installedCommitFromLock(lock), SHA_A)
+})
+check('the entry that comes last is still found', () => {
+  const lock = `importers:
+
+  .:
+    dependencies:
+      aaa-first:
+        version: git+https://github.com/x/aaa.git#${SHA_B}
+      dsh-workbuddy-connect:
+        specifier: x
+        version: git+https://github.com/sixzjd/dsh-workbuddy-connect.git#${SHA_A}
+`
+  assert.equal(installedCommitFromLock(lock), SHA_A)
+})
+check('a header mentioning the name inside a longer key is ignored', () => {
+  // `dsh-workbuddy-connect-extra` must not be mistaken for this package.
+  const lock = `importers:
+
+  .:
+    dependencies:
+      dsh-workbuddy-connect-extra:
+        specifier: x
+        version: git+https://github.com/x/y.git#${SHA_B}
+`
+  assert.equal(installedCommitFromLock(lock), undefined)
+})
 check('a lockfile without this package answers nothing', () => {
   const lock = `importers:\n\n  .:\n    dependencies:\n      other-package:\n        specifier: ^1.0.0\n        version: 1.0.0\n`
   assert.equal(installedCommitFromLock(lock), undefined)
