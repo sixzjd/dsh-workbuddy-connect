@@ -531,6 +531,29 @@ window.__ModuleLoader__.load({
     const PACKAGE_NAME = "dsh-workbuddy-connect";
 
     /**
+     * The per-process control key for the update route.
+     *
+     * Read from the status document, the same place `authKey` and `modelsKey`
+     * come from, and cached for the page's lifetime: it is minted once per host
+     * process, and a failed read is retried rather than remembered as "no key"
+     * (which would render as a permanent 403).
+     */
+    let updateKeyPromise;
+    function updateKeyOf() {
+      updateKeyPromise ??= fetch(STATUS_PATH)
+        .then((res) => (res.ok ? res.json() : undefined))
+        .then((doc) => {
+          const key = doc?.updateKey;
+          return typeof key === "string" && key !== "" ? key : undefined;
+        })
+        .catch(() => {
+          updateKeyPromise = undefined;
+          return undefined;
+        });
+      return updateKeyPromise;
+    }
+
+    /**
      * The contribution to the plugin page's own detail actions.
      *
      * DSH offers an "Update" button only for the official on-demand catalog —
@@ -558,7 +581,14 @@ window.__ModuleLoader__.load({
         setBusy(true);
         setMessage(null);
         try {
-          const res = await fetch(`${UPDATE_PATH}${force ? "?refresh=1" : ""}`);
+          // The route is guarded like every other card route, and the key
+          // arrives with the status document the card already fetches — so it
+          // is read here rather than assumed absent (this component does not
+          // receive the settings card's `status` prop).
+          const key = await updateKeyOf();
+          const res = await fetch(`${UPDATE_PATH}${force ? "?refresh=1" : ""}`, {
+            headers: key === undefined ? {} : { "x-dsh-workbuddy-connect-key": key },
+          });
           if (!res.ok) throw new Error(String(res.status));
           const doc = await res.json();
           if (alive.current) setReport(doc);
