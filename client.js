@@ -73,16 +73,7 @@ window.__ModuleLoader__.load({
       signedOutHint: "登录后才会出现模型分组。",
       sessionStale: "上游拒绝了这份凭据：桌面 App 换过会话了。点「从桌面 App 导入」重新接入，或重新登录。",
       updateTitle: "插件更新",
-      updateCheck: "检查更新",
-      updateChecking: "检查中…",
-      updateAvailable: "有新版本",
-      updateCurrent: "已是最新",
-      updateApply: "更新到此版本",
-      updateRunning: "正在更新…",
-      updateLocalCopy: "这个安装来自本地目录，没有可比较的远程仓库。",
-      updateUnknown: "暂时查不到远程状态：",
       updateHint: "git 版本可以在这里一键检查并更新到上游最新提交；DSH 自己只给官方插件显示「更新」。",
-      updateDone: "已更新，重启 App 后生效。",
       accountRestricted: "上游已限制这个账号（不是凭据问题，重新登录或重新导入都无效）。只有申诉才能解除：在 WorkBuddy 里提交反馈。",
       tabGlobal: "国际版",
       tabCN: "国内版",
@@ -135,16 +126,7 @@ window.__ModuleLoader__.load({
       signedOutHint: "The model group appears after you sign in.",
       sessionStale: "The upstream refused this credential — the desktop app rotated its session. Press “Import from the desktop app” again, or sign in once more.",
       updateTitle: "Plugin update",
-      updateCheck: "Check for updates",
-      updateChecking: "Checking…",
-      updateAvailable: "Update available",
-      updateCurrent: "Up to date",
-      updateApply: "Update to this commit",
-      updateRunning: "Updating…",
-      updateLocalCopy: "This install comes from a local path, so there is no remote to compare with.",
-      updateUnknown: "Cannot read the remote right now: ",
       updateHint: "For a git install this checks upstream and updates to its latest commit in one click; DSH itself only shows Update for official plugins.",
-      updateDone: "Updated. Restart the app to load it.",
       accountRestricted: "The upstream has restricted this account — this is not a credential problem, so signing in or importing again will not help. Only an appeal lifts it: submit feedback in WorkBuddy.",
       tabGlobal: "Global",
       tabCN: "China",
@@ -543,147 +525,7 @@ window.__ModuleLoader__.load({
     /** Names an existing profile may still declare from before the rename. */
     const LEGACY_PACKAGE_NAMES = ["dsh-workbuddy-connect"];
 
-    /**
-     * The per-process control key for the update route.
-     *
-     * Read from the status document, the same place `authKey` and `modelsKey`
-     * come from, and cached for the page's lifetime: it is minted once per host
-     * process, and a failed read is retried rather than remembered as "no key"
-     * (which would render as a permanent 403).
-     */
-    let updateKeyPromise;
-    function updateKeyOf() {
-      updateKeyPromise ??= fetch(STATUS_PATH)
-        .then((res) => (res.ok ? res.json() : undefined))
-        .then((doc) => {
-          const key = doc?.updateKey;
-          return typeof key === "string" && key !== "" ? key : undefined;
-        })
-        .catch(() => {
-          updateKeyPromise = undefined;
-          return undefined;
-        });
-      return updateKeyPromise;
-    }
-
-    /**
-     * The contribution to the plugin page's own detail actions.
-     *
-     * DSH offers an "Update" button only for the official on-demand catalog —
-     * `updateAvailable()` in the plugin page requires an `installTarget`, and
-     * the manager derives that from `OFFICIAL_ON_DEMAND_CATALOG` alone, so a
-     * community bundle installed from `github:…` never gets one however far
-     * behind it is. The page does declare `plugins.detail.actions` for exactly
-     * this situation, so this card supplies the missing button for its own
-     * package and nothing else.
-     *
-     * Installing stays the manager's job: `ctx.remote.pluginManager` owns the
-     * profile lock, the pnpm run and the reload lifecycle, so this never writes
-     * to the profile itself.
-     */
-    function UpdateActions({ subject, L, manager }) {
-      const pkg = subject?.kind === "bundle" ? subject.pkg : undefined
-      const mine = (pkg?.name === PACKAGE_NAME || LEGACY_PACKAGE_NAMES.includes(pkg?.name)) && pkg?.installed === true;
-      const [report, setReport] = React.useState(null);
-      const [busy, setBusy] = React.useState(false);
-      const [message, setMessage] = React.useState(null);
-      const alive = React.useRef(true);
-      React.useEffect(() => () => { alive.current = false; }, []);
-
-      const check = React.useCallback(async (force) => {
-        setBusy(true);
-        setMessage(null);
-        try {
-          // The route is guarded like every other card route, and the key
-          // arrives with the status document the card already fetches — so it
-          // is read here rather than assumed absent (this component does not
-          // receive the settings card's `status` prop).
-          const key = await updateKeyOf();
-          const res = await fetch(`${UPDATE_PATH}${force ? "?refresh=1" : ""}`, {
-            headers: key === undefined ? {} : { "x-dsh-workbuddy-connect-key": key },
-          });
-          if (!res.ok) throw new Error(String(res.status));
-          const doc = await res.json();
-          if (alive.current) setReport(doc);
-        } catch (error) {
-          if (alive.current) setReport({ state: "unknown", reason: String(error?.message ?? error) });
-        } finally {
-          if (alive.current) setBusy(false);
-        }
-      }, []);
-
-      // Only the package's own page pays for a network round trip, and only
-      // once: the host caches the answer for six hours anyway.
-      React.useEffect(() => {
-        if (mine && report === null && !busy) void check(false);
-      }, [mine, report, busy, check]);
-
-      const apply = React.useCallback(async () => {
-        if (report?.targetSpec === undefined) return;
-        setBusy(true);
-        setMessage(null);
-        try {
-          await reinstallThroughManager(manager, report.targetSpec);
-          if (alive.current) setMessage(L.updateDone);
-        } catch (error) {
-          if (alive.current) setMessage(String(error?.message ?? error));
-        } finally {
-          if (alive.current) setBusy(false);
-        }
-      }, [report, manager, L]);
-
-      // Nothing to say on another package's page.
-      if (!mine) return null;
-
-      const state = report?.state;
-      // The page's own Update control is `Button variant="outline" size="sm"`
-      // with the refresh glyph; an available version is offered as `primary`.
-      // Matching both keeps this action reading as part of the page.
-      const behind = state === "behind";
-      return h("span", { className: "wb-update-action" },
-        h(Button, {
-          variant: behind ? "primary" : "outline",
-          size: "sm",
-          icon: h(IconRefreshOutlineRegular, { size: 13 }),
-          disabled: busy,
-          title: behind ? (report.targetSpec ?? undefined) : undefined,
-          "aria-label": behind ? L.updateApply : L.updateCheck,
-          onClick: () => void (behind ? apply() : check(true)),
-        }, busy ? (behind ? L.updateRunning : L.updateChecking) : (behind ? L.updateApply : L.updateCheck)),
-        // The badge carries the same meaning the page's own "Update available"
-        // tag does, so it is rendered as text beside the action rather than as
-        // a second control.
-        behind ? h("span", { className: "wb-update-note wb-update-note-info" }, L.updateAvailable) : null,
-        state === "current" ? h("span", { className: "wb-update-note" }, L.updateCurrent) : null,
-        message !== null ? h("span", { className: "wb-update-note" }, message) : null,
-        state === "local-copy" ? h("span", { className: "wb-update-note" }, L.updateLocalCopy) : null,
-        state === "unknown" ? h("span", { className: "wb-update-note" }, `${L.updateUnknown}${report.reason ?? ""}`) : null,
-      );
-    }
-
-    /**
-     * Reinstall this package at `spec` through the plugin manager.
-     *
-     * `installBundle` refuses a package that is already present
-     * (`already-installed`), so an update is a removal followed by an install
-     * pinned to the commit the check resolved — the same pair the page's own
-     * official Update button performs, on the same remote service. Doing it
-     * here rather than in the host half is deliberate: the manager owns the
-     * profile lock, the pnpm run and the reload lifecycle, and reaching it over
-     * the remote keeps that ownership in one place.
-     */
-    async function reinstallThroughManager(manager, spec) {
-      if (manager === undefined) throw new Error("the plugin manager service is unavailable");
-      const removed = await manager.removeBundle(PACKAGE_NAME);
-      if (removed?.ok !== true) throw new Error(removed?.error?.message ?? "the manager refused to remove the package");
-      const installed = await manager.installBundle(spec, {});
-      if (installed?.ok !== true) throw new Error(installed?.error?.message ?? "the manager refused to install the package");
-    }
-
-    // `remote.pluginManager` is the service the plugin page itself injects; a
-    // card that wants the page's own Update behaviour has to ask for the same
-    // namespace rather than reaching for a global.
-    const inject = ["slots", "remote.pluginManager"]
+    const inject = ["slots"]
 
     function apply(ctx) {
       try {
@@ -742,23 +584,6 @@ window.__ModuleLoader__.load({
             note("section-inject", error)
           }
         })
-        // The plugin page's per-package action row. Registered separately and
-        // defensively: a host without this slot (an older page, or a surface
-        // that never opens the page) must still get the settings card above.
-        try {
-          const manager = ctx.get("remote.pluginManager")
-          const disposeActions = ctx.slots.inject("plugins.detail.actions", () => ctx.slots.register({
-            name: "plugins.detail.actions",
-            id: `${PACKAGE_NAME}-update`,
-            order: 10,
-          }, (props) => h(UpdateActions, { ...props, L, manager })))
-          ctx.effect(() => () => {
-            disposeActions?.()
-          }, "dsh-workbuddy-connect: plugin page actions")
-        } catch (error) {
-          console.error("[dsh-workbuddy-connect] could not register the plugin page actions:", error)
-          note("detail-actions", error)
-        }
       } catch (error) {
         console.error("[dsh-workbuddy-connect] could not register the settings card:", error)
         note("apply", error)
