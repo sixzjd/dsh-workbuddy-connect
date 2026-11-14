@@ -10,4 +10,4 @@
 # talking to.
 - insert:
     - id: llm-workbuddy
-      name: @sixzjd/dsh-workbuddy-connect
+      name: '@sixzjd/dsh-workbuddy-connect'

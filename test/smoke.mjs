@@ -50,7 +50,13 @@ function fieldAad(keyId, suite) {
 let passed = 0
 function check(name, fn) {
   try {
-    fn()
+    const result = fn()
+    // An async body returns a promise this harness would otherwise drop: the
+    // rejection escapes as an unhandled one and the check prints "ok" having
+    // asserted nothing. Refuse the shape outright rather than pass silently.
+    if (result !== null && typeof result === 'object' && typeof result.then === 'function') {
+      throw new Error('check() got an async body — use checkAsync() so its rejection is awaited')
+    }
     passed++
     console.log(`  ok  ${name}`)
   } catch (error) {
@@ -73,7 +79,22 @@ async function checkAsync(name, fn) {
 
 console.log('manifest')
 
-check('the version is valid semver', async () => {
+await checkAsync('the bundle patch is loadable YAML with a quoted scoped name', async () => {
+  // A scoped package name starts with `@`, which YAML reserves: an unquoted
+  // `name: @scope/pkg` is a parse error, and DSH rejects the whole install with
+  // "failed to parse overlay ... bad indentation of a mapping entry". Published
+  // 0.2.1 shipped exactly that and every registry install of it failed.
+  const { readFileSync } = await import('node:fs')
+  const text = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  for (const line of text.split('\n')) {
+    const m = /^\s*name:\s*(.+?)\s*$/.exec(line)
+    if (m === null) continue
+    assert.ok(!m[1].startsWith('@'), `unquoted scoped name in cordis.patch.yml: ${line.trim()}`)
+  }
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.ok(text.includes(`'${manifest.name}'`), `cordis.patch.yml does not name the package ${manifest.name} in quotes`)
+})
+await checkAsync('the version is valid semver', async () => {
   // The plugin page prints this string, and a registry install refuses a
   // package whose version is not semver. Asserted here so a hand-edit is
   // caught before anything depends on it.
@@ -81,14 +102,14 @@ check('the version is valid semver', async () => {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, `not semver: ${manifest.version}`)
 })
-check('the card reads its version from the manifest, not a second literal', async () => {
+await checkAsync('the card reads its version from the manifest, not a second literal', async () => {
   // A literal beside package.json is two sources for one fact; the card then
   // reports a version the installed files do not have.
   const { readFileSync } = await import('node:fs')
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
-check('the client declares the primitives it renders with', async () => {
+await checkAsync('the client declares the primitives it renders with', async () => {
   // `Button` comes from the shared package; a bundle that requires it without
   // declaring it resolves or not depending on the host's module map.
   const { readFileSync } = await import('node:fs')
@@ -1030,7 +1051,7 @@ await checkAsync('a lockfile with no resolved commit reports unknown', async () 
   assert.equal(report.state, 'unknown')
   assert.match(report.reason, /lockfile/)
 })
-check('a profile still declaring the old unscoped name is understood', async () => {
+await checkAsync('a profile still declaring the old unscoped name is understood', async () => {
   // The package was renamed when it was published to a registry (the unscoped
   // name belongs to somebody else there). A profile installed before that keeps
   // the old key, and failing to read it would report "unknown" for a working
