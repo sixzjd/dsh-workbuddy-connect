@@ -310,6 +310,23 @@ check('the root request id equals the conversation request id', () => {
   const headers = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"hi"}]}')
   assert.equal(headers['X-Root-Request-ID'], headers['X-Conversation-Request-ID'])
 })
+check('the conversation id is STABLE across the turns of one conversation', () => {
+  // The upstream keys its prefix cache by this id. Measured 2026-11-14: with a
+  // fresh UUID per request, hy4free reported 0 cached tokens on three
+  // identical 20k-token sends; holding the id fixed reported 20672.
+  const first = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"hi"}]}')
+  const second = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"},{"role":"user","content":"hi again"}]}')
+  assert.equal(first['X-Conversation-ID'], second['X-Conversation-ID'])
+})
+check('two conversations never share a conversation id', () => {
+  const a = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"alpha"}]}')
+  const b = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"beta"}]}')
+  assert.notEqual(a['X-Conversation-ID'], b['X-Conversation-ID'])
+})
+check('a caller-supplied conversation id is kept', () => {
+  const headers = withGatewayChatHeaders({ 'X-Conversation-ID': 'mine' }, '{"messages":[{"role":"user","content":"hi"}]}')
+  assert.equal(headers['X-Conversation-ID'], 'mine')
+})
 check('one turn keeps one request id', () => {
   const first = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"hi"}]}')
   const second = withGatewayChatHeaders({}, '{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"},{"role":"user","content":"hi again"}]}')

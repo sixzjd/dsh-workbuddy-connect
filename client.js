@@ -689,10 +689,21 @@ window.__ModuleLoader__.load({
       try {
         ctx.slots.inject(SHARED_SECTION_SLOT, () => {
           try {
-            let disposeContainer
-            if (!ctx.slots.entries(SHARED_SECTION_SLOT).some((entry) => entry.options?.id === SHARED_SECTION_ID)) {
+            /**
+             * Register the shared block unless a sibling already owns it.
+             *
+             * The registrant OWNS the child declaration `plugin-settings.item`,
+             * and a slot's entries and its declaration die together: disposing
+             * the owner collapses the child slot and cascades every sibling's
+             * card away with it. That is why disabling whichever connector
+             * happened to register the block first used to remove the whole
+             * 《插件设置》 entry, taking the still-enabled connectors' cards with
+             * it.
+             */
+            const registerContainer = () => {
+              if (ctx.slots.entries(SHARED_SECTION_SLOT).some((entry) => entry.options?.id === SHARED_SECTION_ID)) return undefined
               try {
-                disposeContainer = ctx.slots.register({
+                return ctx.slots.register({
                   name: SHARED_SECTION_SLOT,
                   id: SHARED_SECTION_ID,
                   order: SHARED_SECTION_ORDER,
@@ -700,16 +711,29 @@ window.__ModuleLoader__.load({
                   children: { [SHARED_ITEM_SLOT]: { kind: "list", scope: "root" } },
                 }, PluginSettingsSection)
               } catch (error) {
+                // A sibling won the race between the check and the register.
                 console.error("[dsh-workbuddy-connect] shared plugin-settings block lost the race; attaching to the winner:", error)
                 note("container", error)
+                return undefined
               }
             }
+            // Depends on the ITEM slot, not the container: the item slot's
+            // declaration epoch is what changes when an owner collapses, so
+            // this re-fires and re-registers the card after a recovery.
             const disposeItem = ctx.slots.inject(SHARED_ITEM_SLOT, () => ctx.slots.register({
               name: SHARED_ITEM_SLOT,
               id: SHARED_ITEM_ID,
               order: 50,
             }, () => h(WorkBuddyCard)))
+            let disposeContainer = registerContainer()
+            // Recovery: `settings.section` stays declared by the host, so this
+            // subscription outlives a sibling's collapse. Re-adopt the block so
+            // the survivors' cards come back without a page reload.
+            const unsubscribe = ctx.slots.subscribe(SHARED_SECTION_SLOT, () => {
+              disposeContainer = registerContainer() ?? disposeContainer
+            })
             return () => {
+              unsubscribe()
               disposeItem()
               disposeContainer?.()
             }
