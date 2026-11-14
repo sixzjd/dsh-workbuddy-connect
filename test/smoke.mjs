@@ -78,6 +78,20 @@ async function checkAsync(name, fn) {
 }
 
 console.log('manifest')
+await checkAsync('the client bundle registers under the package name', async () => {
+  // The browser module system keys factories by `stripClientSuffix(registration.id)`
+  // and the host composes one graph row per loader entry whose name is the package
+  // specifier. An `id` that disagrees with `package.json` therefore registers the
+  // bundle under a key no row ever asks for: the factory is stored, never
+  // materialized, and every slot it would fill stays empty — the plugin simply
+  // never appears, with no error anywhere.
+  const { readFileSync } = await import('node:fs')
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const m = /__ModuleLoader__\.load\(\{\s*id:\s*["'`]([^"'`]+)/.exec(client)
+  assert.ok(m !== null, 'client.js does not call window.__ModuleLoader__.load with an id')
+  assert.equal(m[1], manifest.name, `client id "${m[1]}" must equal package name "${manifest.name}"`)
+})
 
 await checkAsync('the bundle patch is loadable YAML with a quoted scoped name', async () => {
   // A scoped package name starts with `@`, which YAML reserves: an unquoted

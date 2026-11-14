@@ -3,7 +3,7 @@
   "displayName": "WorkBuddy",
   "description": "将 WorkBuddy（国际版 / 国内版）的模型接入 DeepSeek Harness — bring WorkBuddy (Global & CN) models into DeepSeek Harness.",
   "icon": "./assets/icon.svg",
-  "version": "0.2.2",
+  "version": "0.2.1",
   "author": "sunzhengnan",
   "keywords": [
     "dsh-plugin",
