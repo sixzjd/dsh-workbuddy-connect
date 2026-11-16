@@ -61,10 +61,12 @@ window.__ModuleLoader__.load({
       removeAccount: "移除",
       accountExpired: "已过期",
       accountActive: "当前",
-      accountsHint: "这里保存多个账号，切换后立即生效，无需重新登录。",
-      accountsOne: "只保存了一个账号。登录或从桌面 App 导入另一个账号，就能在这里快速切换。",
+      accountsCurrent: "当前账号",
+      addAccount: "添加账号",
+      addAccountHint: "登录另一个账号，或在下方导入桌面 App 中已登录的账号；当前账号会被保留，随时可以切换回来。",
       accountSwitched: "已切换账号",
       accountRemoved: "已移除账号",
+      removeConfirm: "移除这个账号？它的登录信息会从本机删除。",
       cacheHit: "缓存命中",
       cacheLast: "最近一轮",
       cacheTurns: "轮",
@@ -129,10 +131,12 @@ window.__ModuleLoader__.load({
       removeAccount: "Remove",
       accountExpired: "expired",
       accountActive: "active",
-      accountsHint: "Several accounts are kept here. A switch takes effect immediately, with no new sign-in.",
-      accountsOne: "Only one account is stored. Sign in, or import another from the desktop app, to switch between them here.",
+      accountsCurrent: "Active account",
+      addAccount: "Add account",
+      addAccountHint: "Sign in to another account, or import one the desktop app already holds. The current account is kept and can be switched back to at any time.",
       accountSwitched: "Account switched",
       accountRemoved: "Account removed",
+      removeConfirm: "Remove this account? Its sign-in will be deleted from this machine.",
       cacheHit: "cache hit",
       cacheLast: "latest",
       cacheTurns: "turns",
@@ -208,10 +212,23 @@ window.__ModuleLoader__.load({
       .wb-model-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .wb-model-id{flex:0 1 auto;min-width:0;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary,#9a9aa3);font-size:11px}
       .wb-model .wb-badge{flex:none}
-      .wb-account{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:.5px solid var(--dsw-alias-border-l2,#dedee3)}
-      .wb-account:first-child{border-top:0}
-      .wb-account-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .wb-account.is-active .wb-account-name{font-weight:600}
+      /* Settings-row shape, matching the DSH settings page (and the usage
+         dashboard plugin): title + description on the left, one control right. */
+      .wb-account-block{margin-top:2px}
+      .wb-config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,#dedee3)}
+      .wb-config-label{display:flex;flex-direction:column;gap:2px;min-width:0}
+      .wb-config-title{font-size:13px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary,#25252a)}
+      .wb-config-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#74747c)}
+      .wb-config-control{display:flex;align-items:center;gap:8px;flex:none}
+      .wb-config-value{font-size:13px;color:var(--dsw-alias-label-primary,#25252a);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .wb-select{height:30px;max-width:220px;padding:0 8px;color:var(--dsw-alias-label-primary,#25252a);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,#d4d6db);border-radius:var(--dsw-radius-md,8px);font:inherit;font-size:13px;cursor:pointer}
+      .wb-select:disabled{opacity:.5;cursor:default}
+      .wb-account-list{display:flex;flex-direction:column;gap:2px;padding:6px 0 2px}
+      .wb-account-row{display:flex;align-items:center;gap:8px;padding:4px 0}
+      .wb-account-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--dsw-alias-label-primary,#25252a)}
+      .wb-account-row.is-active .wb-account-name{font-weight:600}
+      .wb-button.wb-link{height:auto;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-state-danger-primary,#d94a4a);font-size:12px}
+      .wb-button.wb-link:hover{background:transparent;text-decoration:underline}
       .wb-quota{display:flex;flex-direction:column;gap:6px}
       .wb-quota-row{display:flex;align-items:center;gap:8px;font-size:12px}
       .wb-bar{flex:1;height:6px;border-radius:99px;background:var(--dsw-alias-border-l2,#dedee3);overflow:hidden}
@@ -422,36 +439,63 @@ window.__ModuleLoader__.load({
                     : null)),
           auth?.state === "signed-in" ? h("div", { className: "wb-note", style: { marginTop: 4 } },
             [auth.domain ? `${L.domain}: ${auth.domain}` : null, auth.expiresAt ? ` · ${L.expires}: ${timeText(auth.expiresAt)}` : null].filter(Boolean).join("")) : null,
-          // The account switcher. One account is the common case, and it says so
-          // rather than showing a control with nothing to choose between.
-          accounts.length > 0 ? h("div", { style: { marginTop: 8 } },
-            h("div", { className: "wb-row" },
-              h("span", { className: "wb-label" }, `${L.accounts} (${accounts.length})`)),
-            h("div", { className: "wb-note", style: { margin: "2px 0 4px" } },
-              accounts.length > 1 ? L.accountsHint : L.accountsOne),
-            h("div", null, accounts.map((account) => h("div", {
-              key: account.hash,
-              className: `wb-account${account.active ? " is-active" : ""}`,
-            },
-              h("span", { className: "wb-account-name", title: account.uidShort },
-                account.nickname ?? account.uidShort),
-              account.expired ? h("span", { className: "wb-badge" }, L.accountExpired) : null,
-              account.active
-                ? h("span", { className: "wb-badge wb-good" }, L.accountActive)
-                : h("button", {
+          // The account area.
+          //
+          // Shaped after the DSH settings rows the usage dashboard uses: a title,
+          // a description, and one control — because that is where this card
+          // lives and a row that does not match its neighbours reads as an
+          // embedded widget rather than part of the page.
+          //
+          // The switcher is a select, not a list of buttons: with two accounts a
+          // list is noisy, and with five it is unusable. "Add account" is always
+          // available, including while signed in — that is the only way a second
+          // account can ever get in here, and hiding it while signed in was the
+          // reason there was no way to add one at all.
+          h("div", { className: "wb-account-block" },
+            h("div", { className: "wb-config-row" },
+              h("div", { className: "wb-config-label" },
+                h("div", { className: "wb-config-title" }, L.accounts),
+                h("div", { className: "wb-config-desc" },
+                  accounts.length > 1 ? L.accountsHint : L.addAccountHint)),
+              h("div", { className: "wb-config-control" },
+                accounts.length > 1
+                  ? h("select", {
+                      className: "wb-select",
+                      value: (accounts.find((a) => a.active) ?? accounts[0]).hash,
+                      disabled: busy,
+                      onChange: (e) => void switchAccount(e.target.value),
+                    }, accounts.map((account) => h("option", {
+                      key: account.hash,
+                      value: account.hash,
+                    }, `${account.nickname ?? account.uidShort}${account.expired ? ` · ${L.accountExpired}` : ""}`)))
+                  : h("span", { className: "wb-config-value" },
+                      (accounts.find((a) => a.active) ?? accounts[0])?.nickname
+                        ?? (accounts.find((a) => a.active) ?? accounts[0])?.uidShort
+                        ?? "—"),
+                h("button", {
+                  type: "button",
+                  className: "wb-button",
+                  disabled: busy,
+                  onClick: () => void beginLogin(),
+                }, L.addAccount))),
+            // The long form of the rows: what each account is, and how to be rid
+            // of one. Only worth the space once there is more than one.
+            accounts.length > 1
+              ? h("div", { className: "wb-account-list" }, accounts.map((account) => h("div", {
+                  key: account.hash,
+                  className: `wb-account-row${account.active ? " is-active" : ""}`,
+                },
+                  h("span", { className: "wb-account-name" }, account.nickname ?? account.uidShort),
+                  account.expired ? h("span", { className: "wb-badge" }, L.accountExpired) : null,
+                  account.active ? h("span", { className: "wb-badge wb-good" }, L.accountActive) : null,
+                  h("button", {
                     type: "button",
-                    className: "wb-button",
+                    className: "wb-button wb-link",
                     disabled: busy,
-                    onClick: () => void switchAccount(account.hash),
-                  }, L.switchAccount),
-              accounts.length > 1 && !account.active
-                ? h("button", {
-                    type: "button",
-                    className: "wb-button",
-                    disabled: busy,
+                    title: L.removeConfirm,
                     onClick: () => void removeAccount(account.hash),
-                  }, L.removeAccount)
-                : null)))) : null,
+                  }, L.removeAccount))))
+              : null),
           auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
             L.accountRestricted,
             h("div", { className: "wb-note", style: { marginTop: 2 } }, String(auth.accountRestricted))) : null,

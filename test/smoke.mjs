@@ -144,6 +144,32 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the card offers a way to add an account while signed in', async () => {
+  // The add path used to exist only in the signed-out branch, so a signed-in user
+  // had no way to add a second account at all.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const from = source.indexOf('wb-account-block')
+  assert.ok(from !== -1, 'the card has no account block')
+  const to = source.indexOf('accountRestricted', from)
+  const block = source.slice(from, to === -1 ? from + 4000 : to)
+
+  // Find the add-account button by its label, then inspect ITS attribute list.
+  // A whole-block /beginLogin/ check passed even after the handler was replaced,
+  // because the name also appears in a nearby comment.
+  // Anchor on the unique label and look BACK a short distance for its handler.
+  // (Searching back for the nearest h("button" picks an unrelated row button.)
+  const label = block.indexOf('L.addAccount)')
+  assert.ok(label !== -1, 'the account block has no add-account button')
+  const around = block.slice(Math.max(0, label - 250), label)
+  assert.match(around, /onClick:\s*\(\)\s*=>\s*void\s+beginLogin\(\)/, 'the add button does not start a login')
+
+  // The select must actually switch; same reasoning, anchor on onChange.
+  const select = block.indexOf('className: "wb-select"')
+  assert.ok(select !== -1, 'two or more accounts do not render a switcher')
+  assert.match(block.slice(select, select + 500), /onChange:[\s\S]*switchAccount/, 'the switcher does not switch accounts')
+})
+
 await checkAsync('the runtime hands its data dir to the credential store', async () => {
   // Importing lib/index.js pulls in pi-ai and the DSH packages, so this invariant
   // cannot be asserted by constructing a runtime here. It is asserted against the
