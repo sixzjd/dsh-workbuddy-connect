@@ -32,6 +32,7 @@ import { deriveAtRestKey, deriveAtRestKeyId, isEncryptedFieldWrapper, openEncryp
 import { createAccountStore } from '../lib/accounts.js'
 import { WorkBuddyCredentialStore } from '../lib/auth.js'
 import { writeJsonAtomic } from '../lib/auth.js'
+import { existsSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -143,6 +144,20 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the runtime hands its data dir to the credential store', async () => {
+  // Importing lib/index.js pulls in pi-ai and the DSH packages, so this invariant
+  // cannot be asserted by constructing a runtime here. It is asserted against the
+  // source instead, because the failure mode is silent and severe: the store then
+  // falls back to the real profile's directory, and because saving claims the
+  // active slot, any runtime built against a temporary directory re-points the
+  // user's real active account. That happened — it signed the real account out.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const construction = source.match(/new WorkBuddyCredentialStore\(\{([\s\S]*?)\}\)/)
+  assert.ok(construction !== null, 'lib/index.js no longer constructs a credential store')
+  assert.match(construction[1], /dataDir:\s*this\.dataDir/, 'the credential store is constructed without the runtime data dir')
+})
+
 await checkAsync('the client declares the primitives it renders with', async () => {
   // `Button` comes from the shared package; a bundle that requires it without
   // declaring it resolves or not depending on the host's module map.
@@ -562,6 +577,25 @@ await checkAsync('a pre-upgrade credential still resolves', async () => {
     refresh: async () => { throw new Error('refresh must not run here') },
   })
   assert.equal((await store.resolve()).accessToken, 'token-legacy')
+})
+
+await checkAsync('a store given a data dir never falls back to the real profile', async () => {
+  // The fallback to the discovered profile is what let a runtime built against a
+  // throwaway directory write into the user's real profile and re-point its active
+  // account, signing the real account out. The fallback must only apply when the
+  // caller says nothing at all.
+  const dir = makeTempDir()
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0],
+    dataDir: dir,
+    refresh: async () => { throw new Error('refresh must not run here') },
+  })
+  assert.equal(store.dataDir, dir)
+  await store.accounts.save(credentialDocument({ uid: 'uid-probe', accessToken: 'token-probe' }))
+  assert.equal(existsSync(join(dir, 'accounts', WORKBUDDY_VARIANTS[0].region)), true)
+  // And the legacy path it would fall back to lives under the same dir, so no
+  // write can escape.
+  assert.ok(store.ownPath.startsWith(dir), `ownPath escaped the data dir: ${store.ownPath}`)
 })
 
 console.log('thinking levels')
