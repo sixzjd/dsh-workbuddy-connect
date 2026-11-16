@@ -658,6 +658,48 @@ await checkAsync('an import does not steal the active slot from a chosen account
   assert.equal(active.uidShort, 'uid-chos')
 })
 
+await checkAsync('logout with several accounts really signs out', async () => {
+  // "退出登录" must not become a hidden "switch to the next account". The card
+  // polls status every minute, so an implicit switch would look like the sign-out
+  // simply did not work — and the user's other account would be used for requests
+  // they thought were signed out.
+  const dir = makeTempDir()
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0], dataDir: dir,
+    refresh: async () => { throw new Error('refresh must not run here') },
+  })
+  await store.save(credentialDocument({ uid: 'uid-one', nickname: '一' }))
+  await store.save(credentialDocument({ uid: 'uid-two', nickname: '二' }))
+  await store.logout()
+  assert.deepEqual(await store.accounts.list(), [])
+  await assert.rejects(() => store.resolve(), /not signed in/i)
+})
+await checkAsync('clear does not resurrect accounts from the legacy file', async () => {
+  // store.save() keeps a single-file copy for downgrades. "清除全部" has to clear
+  // that too, or the next read migrates it straight back — the user watches all
+  // accounts disappear and then reappear a second later.
+  const dir = makeTempDir()
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0], dataDir: dir,
+    refresh: async () => { throw new Error('refresh must not run here') },
+  })
+  // Use a parsed credential — that is what sign-in / import actually pass, and
+  // the only shape whose downgrade copy contains a usable token. A document
+  // fixture writes an empty file and makes this test pass for the wrong reason.
+  await store.save({
+    accessToken: 'token-live', refreshToken: 'refresh-live',
+    expiresAtMs: Date.now() + 3600_000, domain: 'www.codebuddy.cn',
+    uid: 'uid-one', nickname: '一',
+  })
+  assert.equal(existsSync(store.ownPath), true, 'test needs the legacy copy to exist')
+  // The card's clear action calls store.logout(), not the bare account store —
+  // that is the only path that also drops the downgrade copy.
+  await store.logout()
+  assert.equal(existsSync(store.ownPath), false, 'the downgrade copy survived logout')
+  await assert.rejects(() => store.resolve(), /not signed in/i)
+  assert.deepEqual(await store.accounts.list(), [])
+})
+
 await checkAsync('the credential store reads the active account', async () => {
   // The store is what every request goes through, so activating an account has to
   // change what resolve() returns — that is the whole mechanism of a switch.
