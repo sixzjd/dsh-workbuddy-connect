@@ -25,6 +25,7 @@ import {
 } from '../lib/upstream.js'
 import { fallbackFor, WorkBuddyCatalog } from '../lib/catalog.js'
 import { accumulateCacheUsage, emptyCacheUsage, usageFromSseText } from '../lib/cachestats.js'
+import { reasoningFields } from '../lib/thinking.js'
 import { MAX_DELIVERABLE_BODY_BYTES, createWorkBuddyShim } from '../lib/shim.js'
 import { modelIdentityKeysOf, WORKBUDDY_VARIANTS } from '../lib/variants.js'
 import { deriveAtRestKey, deriveAtRestKeyId, isEncryptedFieldWrapper, openEncryptedField } from '../lib/atrest.js'
@@ -368,6 +369,31 @@ check('is account-scoped', () => {
 check('keeps a key the caller supplied', () => {
   const body = JSON.parse(withPromptCacheKey('{"messages":[],"prompt_cache_key":"mine"}', 'uid'))
   assert.equal(body.prompt_cache_key, 'mine')
+})
+
+console.log('thinking levels')
+check('a model that cannot disable thinking offers only its declared levels', () => {
+  // hy4free declares supportedEfforts: ['high'] with canDisableThinking: false,
+  // and the picker showed exactly two entries: "关闭" and "high". Both put 'high'
+  // on the wire, so half the control was a no-op dressed up as a choice — and
+  // the upstream never said "off" was available in the first place.
+  const fields = reasoningFields({ reasoning: { supports: true, supportedEfforts: ['high'], defaultEffort: 'high', canDisableThinking: false } })
+  assert.equal(fields.thinkingLevelMap.off, null)
+  assert.equal(fields.thinkingLevelMap.high, 'high')
+})
+check('a model that can disable thinking still offers it', () => {
+  // deepseek-v4.1-flash declares canDisableThinking: true, so the off slot is
+  // the upstream's own statement that the level exists.
+  const fields = reasoningFields({ reasoning: { supports: true, supportedEfforts: ['low', 'high', 'max'], defaultEffort: 'high', canDisableThinking: true } })
+  assert.notEqual(fields.thinkingLevelMap.off, null)
+})
+check('only the declared levels appear', () => {
+  const fields = reasoningFields({ reasoning: { supports: true, supportedEfforts: ['low', 'high', 'max'], defaultEffort: 'high', canDisableThinking: false } })
+  assert.equal(fields.thinkingLevelMap.low, 'low')
+  assert.equal(fields.thinkingLevelMap.high, 'high')
+  assert.equal(fields.thinkingLevelMap.max, 'max')
+  assert.equal(fields.thinkingLevelMap.medium, null)
+  assert.equal(fields.thinkingLevelMap.xhigh, null)
 })
 
 console.log('cache stats')
