@@ -29,6 +29,33 @@ import { reasoningFields } from '../lib/thinking.js'
 import { MAX_DELIVERABLE_BODY_BYTES, createWorkBuddyShim } from '../lib/shim.js'
 import { modelIdentityKeysOf, WORKBUDDY_VARIANTS } from '../lib/variants.js'
 import { deriveAtRestKey, deriveAtRestKeyId, isEncryptedFieldWrapper, openEncryptedField } from '../lib/atrest.js'
+import { createAccountStore } from '../lib/accounts.js'
+import { WorkBuddyCredentialStore } from '../lib/auth.js'
+import { writeJsonAtomic } from '../lib/auth.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+/** A fresh directory per check: the store writes real files. */
+function makeTempDir() {
+  return mkdtempSync(join(tmpdir(), 'wb-accounts-'))
+}
+
+/** A plugin-owned credential document, in the shape the store writes. */
+function credentialDocument({ uid, nickname, domain = 'www.codebuddy.cn', accessToken, expiresAtMs }) {
+  return {
+    version: 1,
+    region: domain.endsWith('workbuddy.ai') ? 'global' : 'cn',
+    auth: {
+      accessToken: accessToken ?? `token-${uid}`,
+      refreshToken: `refresh-${uid}`,
+      expiresAt: Math.floor((expiresAtMs ?? Date.now() + 3600_000) / 1000),
+      domain,
+      realm: domain.endsWith('workbuddy.ai') ? 'global' : 'cn',
+    },
+    account: { uid, ...nickname === undefined ? {} : { nickname } },
+  }
+}
 
 /** The field-framing AAD, rebuilt here so the test does not import the module's own copy. */
 function fieldAad(keyId, suite) {
@@ -369,6 +396,172 @@ check('is account-scoped', () => {
 check('keeps a key the caller supplied', () => {
   const body = JSON.parse(withPromptCacheKey('{"messages":[],"prompt_cache_key":"mine"}', 'uid'))
   assert.equal(body.prompt_cache_key, 'mine')
+})
+
+console.log('account store')
+await checkAsync('migrates the single credential file into a first account', async () => {
+  // Every install has exactly one credential file at the plugin data dir root.
+  // Turning that into an account list must never lose the sign-in: the existing
+  // file becomes the one listed account, and it is the active one.
+  const dir = makeTempDir()
+  const legacy = join(dir, '.workbuddy-auth.json')
+  writeJsonAtomic(legacy, credentialDocument({ uid: 'uid-one', nickname: '一' }))
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  assert.equal(await store.importLegacyFile(legacy), true)
+  const accounts = await store.list()
+  assert.equal(accounts.length, 1)
+  assert.equal(accounts[0].uidShort, 'uid-one')
+  assert.equal(accounts[0].active, true)
+  assert.equal((await store.active())?.uid, 'uid-one')
+})
+await checkAsync('saves a second account without losing the first', async () => {
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one' }))
+  await store.save(credentialDocument({ uid: 'uid-two' }))
+  const accounts = await store.list()
+  assert.equal(accounts.length, 2)
+  // The one just saved is the active one: saving is "use this account now".
+  assert.equal(accounts.find(a => a.active)?.uidShort, 'uid-two')
+})
+await checkAsync('switches the active account', async () => {
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one', accessToken: 'token-one' }))
+  await store.save(credentialDocument({ uid: 'uid-two', accessToken: 'token-two' }))
+  assert.equal((await store.active()).accessToken, 'token-two')
+  const first = (await store.list()).find(a => a.uidShort === 'uid-one')
+  await store.activate(first.hash)
+  assert.equal((await store.active()).accessToken, 'token-one')
+  const accounts = await store.list()
+  assert.equal(accounts.filter(a => a.active).length, 1)
+})
+await checkAsync('refuses to activate an account it does not hold', async () => {
+  // Silently falling back to "no account" would sign the user out; guessing a
+  // different account would send their requests to somebody else's.
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one' }))
+  await assert.rejects(() => store.activate('uid-absent'), /unknown account/i)
+  assert.equal((await store.active())?.uid, 'uid-one')
+})
+await checkAsync('keeps realms apart', async () => {
+  // A CN account must never be listed for the international variant: the two
+  // realms' tokens are not interchangeable, and offering one would produce a
+  // failure at request time instead of at the point of choice.
+  const dir = makeTempDir()
+  const cn = createAccountStore({ realm: 'cn', dataDir: dir })
+  const global = createAccountStore({ realm: 'global', dataDir: dir })
+  await cn.save(credentialDocument({ uid: 'uid-cn' }))
+  await global.save(credentialDocument({ uid: 'uid-global', domain: 'www.workbuddy.ai' }))
+  assert.deepEqual((await cn.list()).map(a => a.uidShort), ['uid-cn'])
+  assert.deepEqual((await global.list()).map(a => a.uidShort), ['uid-glob'])
+})
+await checkAsync('refuses a credential from the other realm', async () => {
+  const dir = makeTempDir()
+  const cn = createAccountStore({ realm: 'cn', dataDir: dir })
+  await assert.rejects(
+    () => cn.save(credentialDocument({ uid: 'uid-global', domain: 'www.workbuddy.ai' })),
+    /refusing/i,
+  )
+})
+await checkAsync('removing the active account promotes the remaining one', async () => {
+  // Leaving no active account would sign the user out of a variant that still
+  // holds a usable credential.
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one' }))
+  await store.save(credentialDocument({ uid: 'uid-two' }))
+  const second = (await store.list()).find(a => a.uidShort === 'uid-two')
+  await store.remove(second.hash)
+  const accounts = await store.list()
+  assert.equal(accounts.length, 1)
+  assert.equal(accounts[0].active, true)
+  assert.equal((await store.active())?.uid, 'uid-one')
+})
+await checkAsync('removing the last account leaves the variant signed out', async () => {
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one' }))
+  const only = (await store.list())[0]
+  await store.remove(only.hash)
+  assert.deepEqual(await store.list(), [])
+  assert.equal(await store.active(), undefined)
+})
+await checkAsync('lists an expired account as expired rather than dropping it', async () => {
+  // An expired account is exactly the one the user needs to see, so they know
+  // to sign in again. Hiding it would make it look like it was never added.
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-old', expiresAtMs: Date.now() - 3600_000 }))
+  const accounts = await store.list()
+  assert.equal(accounts.length, 1)
+  assert.equal(accounts[0].expired, true)
+})
+await checkAsync('never exposes a full token or a full uid', async () => {
+  // The account list is rendered in a page, so it carries a summary, not the
+  // credential and not an identifier that is worth leaking in a screenshot.
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'abcdefgh-1234-5678-9999-000011112222', nickname: '号一' }))
+  const listed = await store.list()
+  assert.equal(JSON.stringify(listed).includes('token-'), false)
+  assert.equal(JSON.stringify(listed).includes('abcdefgh-1234'), false)
+  assert.equal(listed[0].uidShort, 'abcdefgh')
+})
+
+await checkAsync('importing the legacy file twice adds only one account', async () => {
+  const dir = makeTempDir()
+  const legacy = join(dir, '.workbuddy-auth.json')
+  writeJsonAtomic(legacy, credentialDocument({ uid: 'uid-one' }))
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.importLegacyFile(legacy)
+  await store.importLegacyFile(legacy)
+  assert.equal((await store.list()).length, 1)
+})
+await checkAsync('an import does not steal the active slot from a chosen account', async () => {
+  // The user picked an account after the upgrade; a later import of the old file
+  // must not switch them away from it.
+  const dir = makeTempDir()
+  const legacy = join(dir, '.workbuddy-auth.json')
+  writeJsonAtomic(legacy, credentialDocument({ uid: 'uid-old' }))
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-chosen' }))
+  await store.importLegacyFile(legacy)
+  const accounts = await store.list()
+  assert.equal(accounts.length, 2)
+  const active = accounts.find(a => a.active)
+  assert.equal(active.uidShort, 'uid-chos')
+})
+
+await checkAsync('the credential store reads the active account', async () => {
+  // The store is what every request goes through, so activating an account has to
+  // change what resolve() returns — that is the whole mechanism of a switch.
+  const dir = makeTempDir()
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0],
+    dataDir: dir,
+    refresh: async () => { throw new Error('refresh must not run here') },
+  })
+  await store.accounts.save(credentialDocument({ uid: 'uid-one', accessToken: 'token-one' }))
+  await store.accounts.save(credentialDocument({ uid: 'uid-two', accessToken: 'token-two' }))
+  assert.equal((await store.resolve()).accessToken, 'token-two')
+  const first = (await store.accounts.list()).find(a => a.uidShort === 'uid-one')
+  await store.accounts.activate(first.hash)
+  // No restart, no re-login: the very next resolve serves the other account.
+  assert.equal((await store.resolve()).accessToken, 'token-one')
+})
+await checkAsync('a pre-upgrade credential still resolves', async () => {
+  // Upgrading must not sign anyone out. Before the account list existed the only
+  // credential was one file at the data dir root.
+  const dir = makeTempDir()
+  writeJsonAtomic(join(dir, WORKBUDDY_VARIANTS[0].authFilename), credentialDocument({ uid: 'uid-legacy', accessToken: 'token-legacy' }))
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0],
+    dataDir: dir,
+    refresh: async () => { throw new Error('refresh must not run here') },
+  })
+  assert.equal((await store.resolve()).accessToken, 'token-legacy')
 })
 
 console.log('thinking levels')

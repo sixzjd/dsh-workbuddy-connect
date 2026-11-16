@@ -24,6 +24,7 @@ window.__ModuleLoader__.load({
     const MODELS_PATH = `${BASE}/models`;
     const AUTH_PATH = `${BASE}/auth`;
     const UPDATE_PATH = `${BASE}/update`;
+    const ACCOUNTS_PATH = `${BASE}/accounts`;
 
     const zh = {
       title: "WorkBuddy",
@@ -55,6 +56,15 @@ window.__ModuleLoader__.load({
       freeTag: "免费",
       paidTag: "需积分",
       modelCount: "个模型",
+      accounts: "账号",
+      switchAccount: "切换",
+      removeAccount: "移除",
+      accountExpired: "已过期",
+      accountActive: "当前",
+      accountsHint: "这里保存多个账号，切换后立即生效，无需重新登录。",
+      accountsOne: "只保存了一个账号。登录或从桌面 App 导入另一个账号，就能在这里快速切换。",
+      accountSwitched: "已切换账号",
+      accountRemoved: "已移除账号",
       cacheHit: "缓存命中",
       cacheLast: "最近一轮",
       cacheTurns: "轮",
@@ -114,6 +124,15 @@ window.__ModuleLoader__.load({
       freeTag: "free",
       paidTag: "uses credits",
       modelCount: "models",
+      accounts: "Accounts",
+      switchAccount: "Switch",
+      removeAccount: "Remove",
+      accountExpired: "expired",
+      accountActive: "active",
+      accountsHint: "Several accounts are kept here. A switch takes effect immediately, with no new sign-in.",
+      accountsOne: "Only one account is stored. Sign in, or import another from the desktop app, to switch between them here.",
+      accountSwitched: "Account switched",
+      accountRemoved: "Account removed",
       cacheHit: "cache hit",
       cacheLast: "latest",
       cacheTurns: "turns",
@@ -189,6 +208,10 @@ window.__ModuleLoader__.load({
       .wb-model-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .wb-model-id{flex:0 1 auto;min-width:0;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary,#9a9aa3);font-size:11px}
       .wb-model .wb-badge{flex:none}
+      .wb-account{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:.5px solid var(--dsw-alias-border-l2,#dedee3)}
+      .wb-account:first-child{border-top:0}
+      .wb-account-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .wb-account.is-active .wb-account-name{font-weight:600}
       .wb-quota{display:flex;flex-direction:column;gap:6px}
       .wb-quota-row{display:flex;align-items:center;gap:8px;font-size:12px}
       .wb-bar{flex:1;height:6px;border-radius:99px;background:var(--dsw-alias-border-l2,#dedee3);overflow:hidden}
@@ -364,10 +387,17 @@ window.__ModuleLoader__.load({
       // page: the server owns the catalog and computes the rest.
       const setModelEnabled = (model, enabled) => post(MODELS_PATH, { action: "set-model", provider, model, enabled }, status?.modelsKey)
       const setAllEnabled = (enabled) => post(MODELS_PATH, { action: "set-all", provider, enabled }, status?.modelsKey)
+      /** Make a stored account active. The server refreshes catalog and credits. */
+      const switchAccount = (hash) => post(ACCOUNTS_PATH, { action: "activate", provider, hash }, status?.accountsKey)
+      /** Forget one account. Removing the active one promotes another server-side. */
+      const removeAccount = (hash) => post(ACCOUNTS_PATH, { action: "remove", provider, hash }, status?.accountsKey)
       const credits = variant?.credits
       const creditAccounts = Array.isArray(credits?.accounts) ? credits.accounts : []
       const creditTotal = credits?.totalSize ?? creditAccounts.reduce((sum, a) => sum + (Number(a.size) || 0), 0)
       const cache = variant?.cache
+      // Guarded: an older host does not send this field at all, and the card must
+      // keep working against one.
+      const accounts = Array.isArray(variant?.accounts) ? variant.accounts : []
 
       return h(React.Fragment, null,
         h("div", null,
@@ -392,6 +422,36 @@ window.__ModuleLoader__.load({
                     : null)),
           auth?.state === "signed-in" ? h("div", { className: "wb-note", style: { marginTop: 4 } },
             [auth.domain ? `${L.domain}: ${auth.domain}` : null, auth.expiresAt ? ` · ${L.expires}: ${timeText(auth.expiresAt)}` : null].filter(Boolean).join("")) : null,
+          // The account switcher. One account is the common case, and it says so
+          // rather than showing a control with nothing to choose between.
+          accounts.length > 0 ? h("div", { style: { marginTop: 8 } },
+            h("div", { className: "wb-row" },
+              h("span", { className: "wb-label" }, `${L.accounts} (${accounts.length})`)),
+            h("div", { className: "wb-note", style: { margin: "2px 0 4px" } },
+              accounts.length > 1 ? L.accountsHint : L.accountsOne),
+            h("div", null, accounts.map((account) => h("div", {
+              key: account.hash,
+              className: `wb-account${account.active ? " is-active" : ""}`,
+            },
+              h("span", { className: "wb-account-name", title: account.uidShort },
+                account.nickname ?? account.uidShort),
+              account.expired ? h("span", { className: "wb-badge" }, L.accountExpired) : null,
+              account.active
+                ? h("span", { className: "wb-badge wb-good" }, L.accountActive)
+                : h("button", {
+                    type: "button",
+                    className: "wb-button",
+                    disabled: busy,
+                    onClick: () => void switchAccount(account.hash),
+                  }, L.switchAccount),
+              accounts.length > 1 && !account.active
+                ? h("button", {
+                    type: "button",
+                    className: "wb-button",
+                    disabled: busy,
+                    onClick: () => void removeAccount(account.hash),
+                  }, L.removeAccount)
+                : null)))) : null,
           auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
             L.accountRestricted,
             h("div", { className: "wb-note", style: { marginTop: 2 } }, String(auth.accountRestricted))) : null,
