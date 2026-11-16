@@ -3,7 +3,7 @@
   "displayName": "WorkBuddy",
   "description": "将 WorkBuddy（国际版 / 国内版）的模型接入 DeepSeek Harness — bring WorkBuddy (Global & CN) models into DeepSeek Harness.",
   "icon": "./assets/icon.svg",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "author": "sunzhengnan",
   "keywords": [
     "dsh-plugin",
@@ -57,5 +57,9 @@
     "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-llm-pi-ai": ">=0.2.0-rc.2",
     "@earendil-works/pi-ai": ">=0.85.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sixzjd/dsh-workbuddy-connect.git"
   }
 }
