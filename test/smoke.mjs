@@ -144,6 +144,15 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the account hint is short and names what is kept', async () => {
+  // A sentence explaining OAuth and the desktop app did not fit the row and
+  // said more than the action needs to: all the user needs to know is that a
+  // new account will not cost them the current one.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /addAccountHint:\s*"添加新账号，当前帐号会被保留"/)
+})
+
 await checkAsync('the card offers a way to add an account while signed in', async () => {
   // The add path used to exist only in the signed-out branch, so a signed-in user
   // had no way to add a second account at all.
@@ -164,10 +173,13 @@ await checkAsync('the card offers a way to add an account while signed in', asyn
   const around = block.slice(Math.max(0, label - 250), label)
   assert.match(around, /onClick:\s*\(\)\s*=>\s*void\s+beginLogin\(\)/, 'the add button does not start a login')
 
-  // The select must actually switch; same reasoning, anchor on onChange.
-  const select = block.indexOf('className: "wb-select"')
-  assert.ok(select !== -1, 'two or more accounts do not render a switcher')
-  assert.match(block.slice(select, select + 500), /onChange:[\s\S]*switchAccount/, 'the switcher does not switch accounts')
+  // Two or more accounts render the themed Dropdown, and its onChange must call
+  // switchAccount. An OS-native <select> would be a regression: its menu does not
+  // follow the DSH settings theme.
+  const switcher = block.indexOf('h(Dropdown')
+  assert.ok(switcher !== -1, 'two or more accounts do not render the themed switcher')
+  assert.match(block.slice(switcher, switcher + 600), /onChange:[\s\S]*switchAccount/, 'the switcher does not switch accounts')
+  assert.equal(block.includes('h("select"'), false, 'the account switcher reverted to a native select')
 })
 
 await checkAsync('the runtime hands its data dir to the credential store', async () => {

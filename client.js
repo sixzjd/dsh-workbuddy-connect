@@ -63,7 +63,7 @@ window.__ModuleLoader__.load({
       accountActive: "当前",
       accountsCurrent: "当前账号",
       addAccount: "添加账号",
-      addAccountHint: "登录另一个账号，或在下方导入桌面 App 中已登录的账号；当前账号会被保留，随时可以切换回来。",
+      addAccountHint: "添加新账号，当前帐号会被保留",
       accountSwitched: "已切换账号",
       accountRemoved: "已移除账号",
       removeConfirm: "移除这个账号？它的登录信息会从本机删除。",
@@ -133,7 +133,7 @@ window.__ModuleLoader__.load({
       accountActive: "active",
       accountsCurrent: "Active account",
       addAccount: "Add account",
-      addAccountHint: "Sign in to another account, or import one the desktop app already holds. The current account is kept and can be switched back to at any time.",
+      addAccountHint: "Add another account; the current one is kept.",
       accountSwitched: "Account switched",
       accountRemoved: "Account removed",
       removeConfirm: "Remove this account? Its sign-in will be deleted from this machine.",
@@ -221,8 +221,22 @@ window.__ModuleLoader__.load({
       .wb-config-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#74747c)}
       .wb-config-control{display:flex;align-items:center;gap:8px;flex:none}
       .wb-config-value{font-size:13px;color:var(--dsw-alias-label-primary,#25252a);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .wb-select{height:30px;max-width:220px;padding:0 8px;color:var(--dsw-alias-label-primary,#25252a);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,#d4d6db);border-radius:var(--dsw-radius-md,8px);font:inherit;font-size:13px;cursor:pointer}
-      .wb-select:disabled{opacity:.5;cursor:default}
+      /* Same dropdown as the DSH usage dashboard: a settings-style trigger and a
+         themed panel, rather than the OS-native menu a <select> produces. */
+      .wb-dd{position:relative;min-width:0;max-width:100%}
+      .wb-dd-trigger{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:none;border-radius:var(--dsw-radius-md,8px);background-color:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-primary,#25252a);font:inherit;font-size:13px;line-height:20px;cursor:pointer;max-width:100%;transition:background-color .15s ease}
+      .wb-dd-trigger:hover{background-color:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
+      .wb-dd-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
+      .wb-dd-trigger[disabled]{color:var(--dsw-alias-label-tertiary,#9a9aa3);cursor:default}
+      .wb-dd-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .wb-dd-caret{margin-left:auto;flex:none;color:var(--dsw-alias-label-secondary,#74747c);transition:transform .15s ease}
+      .wb-dd-open .wb-dd-caret{transform:rotate(180deg)}
+      .wb-dd-panel{position:absolute;z-index:40;top:calc(100% + 6px);left:0;min-width:100%;max-height:320px;overflow-y:auto;padding:6px;border-radius:var(--dsw-radius-panel,12px);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 24px rgba(0,0,0,.14);border:.5px solid var(--dsw-alias-border-l2,#dedee3)}
+      .wb-dd-option{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:var(--dsw-radius-sm,6px);color:var(--dsw-alias-label-primary,#25252a);font-size:13px;line-height:20px;cursor:pointer;white-space:nowrap}
+      .wb-dd-option-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+      .wb-dd-active{background:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
+      .wb-dd-selected{font-weight:500}
+      .wb-dd-check{margin-left:auto;flex:none;color:var(--dsw-alias-label-primary,#25252a)}
       .wb-account-list{display:flex;flex-direction:column;gap:2px;padding:6px 0 2px}
       .wb-account-row{display:flex;align-items:center;gap:8px;padding:4px 0}
       .wb-account-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--dsw-alias-label-primary,#25252a)}
@@ -253,6 +267,90 @@ window.__ModuleLoader__.load({
     }
 
     const isStatus = (value) => typeof value === "object" && value !== null && !Array.isArray(value) && value.status === "ok"
+
+    /**
+     * A dropdown shaped exactly like the DSH settings' own select and the usage
+     * dashboard's picker: a trigger on the module-platform background, a panel
+     * with a check on the selected row. The native <select> rendered the OS menu
+     * shown in the screenshot, which does not belong to this theme; keeping the
+     * same markup and --dsw-* tokens makes the account switcher read as part of
+     * the settings page rather than an embedded widget.
+     */
+    function Dropdown({ label, value, options, onChange, disabled }) {
+      const [open, setOpen] = React.useState(false)
+      const [active, setActive] = React.useState(-1)
+      const rootRef = React.useRef(null)
+      const triggerRef = React.useRef(null)
+      const listRef = React.useRef(null)
+      const listId = React.useMemo(() => "wb-dd-" + Math.random().toString(36).slice(2, 9), [])
+      const current = options.find((option) => option.value === value)
+      const choose = (index) => {
+        const option = options[index]
+        if (option !== undefined) onChange(option.value)
+        setOpen(false)
+        setActive(-1)
+        triggerRef.current?.focus?.()
+      }
+      const onKeyDown = (event) => {
+        if (event.key === "Escape") { setOpen(false); return }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault()
+          if (!open) { setOpen(true); setActive(Math.max(0, options.findIndex((o) => o.value === value))); return }
+          const delta = event.key === "ArrowDown" ? 1 : -1
+          setActive((i) => (i + delta + options.length) % options.length)
+          return
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          if (open) choose(active);
+          else setOpen(true)
+        }
+      }
+      React.useEffect(() => {
+        if (!open) return
+        const onPointerDown = (event) => {
+          if (!rootRef.current?.contains?.(event.target)) setOpen(false)
+        }
+        document.addEventListener("pointerdown", onPointerDown)
+        return () => document.removeEventListener("pointerdown", onPointerDown)
+      }, [open])
+      React.useEffect(() => {
+        if (!open || active < 0 || listRef.current === null) return
+        listRef.current.querySelector(`[data-index="${active}"]`)?.scrollIntoView?.({ block: "nearest" })
+      }, [open, active])
+
+      return h("div", { className: "wb-dd", ref: rootRef },
+        h("button", {
+          type: "button",
+          className: `wb-dd-trigger${open ? " wb-dd-open" : ""}`,
+          ref: triggerRef,
+          disabled: disabled === true,
+          "aria-label": label,
+          "aria-haspopup": "listbox",
+          "aria-expanded": open,
+          onClick: () => setOpen((v) => !v),
+          onKeyDown,
+        },
+          h("span", { className: "wb-dd-value" }, current?.label ?? ""),
+          h("svg", { className: "wb-dd-caret", width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": "true", focusable: "false" },
+            h("path", { d: "M3 4.5L6 7.5L9 4.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }))),
+        open ? h("div", { className: "wb-dd-panel", role: "listbox", ref: listRef, "aria-label": label, "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined },
+          options.map((option, index) => h("div", {
+            key: option.value,
+            "data-index": index,
+            id: `${listId}-${index}`,
+            role: "option",
+            "aria-selected": option.value === value,
+            className: `wb-dd-option${option.value === value ? " wb-dd-selected" : ""}${index === active ? " wb-dd-active" : ""}`,
+            onPointerEnter: () => setActive(index),
+            onClick: () => choose(index),
+          },
+            h("span", { className: "wb-dd-option-label" }, option.label),
+            option.value === value
+              ? h("svg", { className: "wb-dd-check", width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", focusable: "false" },
+                  h("path", { d: "M3.5 8.5L6.5 11.5L12.5 4.5", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" }))
+              : null))) : null);
+    }
 
     /** One row of the model list: the toggle, the name, the id, and its badges. */
     function modelRow(m, rowOptions) {
@@ -459,15 +557,16 @@ window.__ModuleLoader__.load({
                   accounts.length > 1 ? L.accountsHint : L.addAccountHint)),
               h("div", { className: "wb-config-control" },
                 accounts.length > 1
-                  ? h("select", {
-                      className: "wb-select",
+                  ? h(Dropdown, {
+                      label: L.accounts,
                       value: (accounts.find((a) => a.active) ?? accounts[0]).hash,
                       disabled: busy,
-                      onChange: (e) => void switchAccount(e.target.value),
-                    }, accounts.map((account) => h("option", {
-                      key: account.hash,
-                      value: account.hash,
-                    }, `${account.nickname ?? account.uidShort}${account.expired ? ` · ${L.accountExpired}` : ""}`)))
+                      options: accounts.map((account) => ({
+                        value: account.hash,
+                        label: `${account.nickname ?? account.uidShort}${account.expired ? ` · ${L.accountExpired}` : ""}`,
+                      })),
+                      onChange: (hash) => void switchAccount(hash),
+                    })
                   : h("span", { className: "wb-config-value" },
                       (accounts.find((a) => a.active) ?? accounts[0])?.nickname
                         ?? (accounts.find((a) => a.active) ?? accounts[0])?.uidShort
