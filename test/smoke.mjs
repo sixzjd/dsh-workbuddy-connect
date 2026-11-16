@@ -237,6 +237,20 @@ await checkAsync('the card offers a way to add an account while signed in', asyn
   assert.equal(block.includes('h("select"'), false, 'the account switcher reverted to a native select')
 })
 
+await checkAsync('the clear route clears the downgrade copy too', async () => {
+  // A source-level assertion because lib/index.js pulls in pi-ai. Calling the
+  // bare accounts.clear() leaves the single-file copy in place, which the next
+  // read migrates straight back — '清除全部' then appears to do nothing.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const from = source.indexOf("action?.action === 'clear'")
+  const to = source.indexOf("action?.action === 'adopt-desktop'", from)
+  assert.ok(from !== -1 && to > from, 'clear route not found')
+  const route = source.slice(from, to)
+  assert.match(route, /runtime\.store\.logout\(\)/, 'clear route bypasses logout and keeps the legacy copy')
+  assert.doesNotMatch(route, /runtime\.store\.accounts\.clear\(\)/)
+})
+
 await checkAsync('the runtime hands its data dir to the credential store', async () => {
   // Importing lib/index.js pulls in pi-ai and the DSH packages, so this invariant
   // cannot be asserted by constructing a runtime here. It is asserted against the
