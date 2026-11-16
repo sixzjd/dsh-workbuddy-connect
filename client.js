@@ -56,8 +56,9 @@ window.__ModuleLoader__.load({
       freeTag: "免费",
       paidTag: "需积分",
       modelCount: "个模型",
-      accounts: "账号",
-      switchAccount: "切换",
+      accounts: "当前账号",
+      removeCurrent: "删除当前",
+      clearAll: "清除全部",
       removeAccount: "移除",
       accountExpired: "已过期",
       accountActive: "当前",
@@ -126,8 +127,9 @@ window.__ModuleLoader__.load({
       freeTag: "free",
       paidTag: "uses credits",
       modelCount: "models",
-      accounts: "Accounts",
-      switchAccount: "Switch",
+      accounts: "Current account",
+      removeCurrent: "Delete current",
+      clearAll: "Clear all",
       removeAccount: "Remove",
       accountExpired: "expired",
       accountActive: "active",
@@ -216,6 +218,7 @@ window.__ModuleLoader__.load({
       /* Settings-row shape, matching the DSH settings page (and the usage
          dashboard plugin): title + description on the left, one control right. */
       .wb-account-block{margin-top:2px}
+      .wb-account-label{display:flex;align-items:center;gap:6px}
       .wb-config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,#dedee3)}
       .wb-config-label{display:flex;flex-direction:column;gap:2px;min-width:0}
       .wb-config-title{font-size:13px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary,#25252a)}
@@ -238,10 +241,6 @@ window.__ModuleLoader__.load({
       .wb-dd-active{background:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
       .wb-dd-selected{font-weight:500}
       .wb-dd-check{margin-left:auto;flex:none;color:var(--dsw-alias-label-primary,#25252a)}
-      .wb-account-list{display:flex;flex-direction:column;gap:2px;padding:6px 0 2px}
-      .wb-account-row{display:flex;align-items:center;gap:8px;padding:4px 0}
-      .wb-account-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--dsw-alias-label-primary,#25252a)}
-      .wb-account-row.is-active .wb-account-name{font-weight:600}
       .wb-button.wb-link{height:auto;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-state-danger-primary,#d94a4a);font-size:12px}
       .wb-button.wb-link:hover{background:transparent;text-decoration:underline}
       .wb-quota{display:flex;flex-direction:column;gap:6px}
@@ -503,17 +502,24 @@ window.__ModuleLoader__.load({
       // page: the server owns the catalog and computes the rest.
       const setModelEnabled = (model, enabled) => post(MODELS_PATH, { action: "set-model", provider, model, enabled }, status?.modelsKey)
       const setAllEnabled = (enabled) => post(MODELS_PATH, { action: "set-all", provider, enabled }, status?.modelsKey)
+      // Guarded: an older host does not send this field at all, and the card must
+      // keep working against one. Declared before the handlers below, which read it.
+      const accounts = Array.isArray(variant?.accounts) ? variant.accounts : []
       /** Make a stored account active. The server refreshes catalog and credits. */
       const switchAccount = (hash) => post(ACCOUNTS_PATH, { action: "activate", provider, hash }, status?.accountsKey)
       /** Forget one account. Removing the active one promotes another server-side. */
       const removeAccount = (hash) => post(ACCOUNTS_PATH, { action: "remove", provider, hash }, status?.accountsKey)
+      /** Delete the active account; server promotes another if one is left. */
+      const removeCurrent = () => {
+        const current = accounts.find((a) => a.active) ?? accounts[0]
+        return current ? removeAccount(current.hash) : Promise.resolve(false)
+      }
+      /** Clear every account of this edition (never the other realm). */
+      const clearAccounts = () => post(ACCOUNTS_PATH, { action: "clear", provider }, status?.accountsKey)
       const credits = variant?.credits
       const creditAccounts = Array.isArray(credits?.accounts) ? credits.accounts : []
       const creditTotal = credits?.totalSize ?? creditAccounts.reduce((sum, a) => sum + (Number(a.size) || 0), 0)
       const cache = variant?.cache
-      // Guarded: an older host does not send this field at all, and the card must
-      // keep working against one.
-      const accounts = Array.isArray(variant?.accounts) ? variant.accounts : []
 
       return h(React.Fragment, null,
         h("div", null,
@@ -550,52 +556,53 @@ window.__ModuleLoader__.load({
           // available, including while signed in — that is the only way a second
           // account can ever get in here, and hiding it while signed in was the
           // reason there was no way to add one at all.
+          // Account toolbar, in the same shape Qoder uses for its PATs: a
+          // labelled dropdown naming the active account, then add / delete
+          // current / clear all. The token is an account credential here rather
+          // than a PAT, but the management operations are the same four.
+          // Both editions render this identical block — only the realm's account
+          // list behind it differs.
           h("div", { className: "wb-account-block" },
-            h("div", { className: "wb-config-row" },
-              h("div", { className: "wb-config-label" },
-                h("div", { className: "wb-config-title" }, L.accounts),
-                h("div", { className: "wb-config-desc" },
-                  accounts.length > 1 ? L.accountsHint : L.addAccountHint)),
-              h("div", { className: "wb-config-control" },
-                accounts.length > 1
-                  ? h(Dropdown, {
-                      label: L.accounts,
-                      value: (accounts.find((a) => a.active) ?? accounts[0]).hash,
-                      disabled: busy,
-                      options: accounts.map((account) => ({
-                        value: account.hash,
-                        label: `${account.nickname ?? account.uidShort}${account.expired ? ` · ${L.accountExpired}` : ""}`,
-                      })),
-                      onChange: (hash) => void switchAccount(hash),
-                    })
-                  : h("span", { className: "wb-config-value" },
-                      (accounts.find((a) => a.active) ?? accounts[0])?.nickname
-                        ?? (accounts.find((a) => a.active) ?? accounts[0])?.uidShort
-                        ?? "—"),
+            h("div", { className: "wb-row" },
+              h("span", { className: "wb-label wb-account-label" },
+                h("span", { className: "wb-dot wb-dot-on", "aria-hidden": "true" }),
+                L.accounts),
+              accounts.length > 0
+                ? h(Dropdown, {
+                    label: L.accounts,
+                    value: (accounts.find((a) => a.active) ?? accounts[0]).hash,
+                    disabled: busy,
+                    options: accounts.map((account) => ({
+                      value: account.hash,
+                      label: `${account.nickname ?? account.uidShort}${account.expired ? ` · ${L.accountExpired}` : ""}`,
+                    })),
+                    onChange: (hash) => void switchAccount(hash),
+                  })
+                : h("span", { className: "wb-config-value" }, "—"),
+              h("div", { className: "wb-row-actions" },
                 h("button", {
                   type: "button",
                   className: "wb-button",
                   disabled: busy,
                   onClick: () => void beginLogin(),
-                }, L.addAccount))),
-            // The long form of the rows: what each account is, and how to be rid
-            // of one. Only worth the space once there is more than one.
-            accounts.length > 1
-              ? h("div", { className: "wb-account-list" }, accounts.map((account) => h("div", {
-                  key: account.hash,
-                  className: `wb-account-row${account.active ? " is-active" : ""}`,
-                },
-                  h("span", { className: "wb-account-name" }, account.nickname ?? account.uidShort),
-                  account.expired ? h("span", { className: "wb-badge" }, L.accountExpired) : null,
-                  account.active ? h("span", { className: "wb-badge wb-good" }, L.accountActive) : null,
-                  h("button", {
-                    type: "button",
-                    className: "wb-button wb-link",
-                    disabled: busy,
-                    title: L.removeConfirm,
-                    onClick: () => void removeAccount(account.hash),
-                  }, L.removeAccount))))
-              : null),
+                }, L.addAccount),
+                accounts.length > 0
+                  ? h("button", {
+                      type: "button",
+                      className: "wb-button",
+                      disabled: busy,
+                      onClick: () => void removeCurrent(),
+                    }, L.removeCurrent)
+                  : null,
+                accounts.length > 0
+                  ? h("button", {
+                      type: "button",
+                      className: "wb-button",
+                      disabled: busy,
+                      onClick: () => void clearAccounts(),
+                    }, L.clearAll)
+                  : null)),
+            h("div", { className: "wb-note", style: { margin: "4px 0 0" } }, L.addAccountHint)),
           auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
             L.accountRestricted,
             h("div", { className: "wb-note", style: { marginTop: 2 } }, String(auth.accountRestricted))) : null,

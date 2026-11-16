@@ -144,6 +144,27 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the account toolbar matches the Qoder pattern', async () => {
+  // One row holds: a labelled current-account dropdown, add, delete-current
+  // and clear-all — the same four operations Qoder offers for a PAT. The
+  // separate expandable account list was noise: the dropdown already selects,
+  // and the row already removes; a second list of the same two facts is gone.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const from = source.indexOf('wb-account-block')
+  const to = source.indexOf('auth?.accountRestricted', from)
+  const block = source.slice(from, to)
+  for (const token of ['h(Dropdown', 'L.addAccount)', 'L.removeCurrent', 'L.clearAll']) {
+    assert.ok(block.includes(token), `account toolbar is missing ${token}`)
+  }
+  assert.equal(block.includes('wb-account-list'), false, 'the redundant account list is still rendered')
+  // The handlers must actually exist and talk to the right route.
+  for (const fn of ['const switchAccount', 'const removeAccount', 'const removeCurrent', 'const clearAccounts']) {
+    assert.ok(source.includes(fn), `missing handler ${fn}`)
+  }
+  assert.match(source, /clearAccounts[\s\S]{0,200}ACCOUNTS_PATH/)
+})
+
 await checkAsync('the card keeps action buttons to the right of their row', async () => {
   // Sign-out/import and catalog refresh ended up next to the label, leaving a
   // long empty right half. They share a flex container that pushes them right.
@@ -471,6 +492,22 @@ check('is account-scoped', () => {
 check('keeps a key the caller supplied', () => {
   const body = JSON.parse(withPromptCacheKey('{"messages":[],"prompt_cache_key":"mine"}', 'uid'))
   assert.equal(body.prompt_cache_key, 'mine')
+})
+
+await checkAsync('clearing accounts removes them all without throwing on empty', async () => {
+  // The Qoder-style account row has "清除全部" next to "删除当前". Clearing is a
+  // single operation on the store, and it must be safe to call twice (the card
+  // does not track whether anything is left).
+  const dir = makeTempDir()
+  const store = createAccountStore({ realm: 'cn', dataDir: dir })
+  await store.save(credentialDocument({ uid: 'uid-one' }))
+  await store.save(credentialDocument({ uid: 'uid-two' }))
+  await store.clear()
+  assert.deepEqual(await store.list(), [])
+  assert.equal(await store.active(), undefined)
+  // Idempotent: a second clear has nothing to do and must not throw.
+  await store.clear()
+  assert.deepEqual(await store.list(), [])
 })
 
 console.log('account store')
