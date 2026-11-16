@@ -55,6 +55,10 @@ window.__ModuleLoader__.load({
       freeTag: "免费",
       paidTag: "需积分",
       modelCount: "个模型",
+      cacheHit: "缓存命中",
+      cacheLast: "最近一轮",
+      cacheTurns: "轮",
+      cacheIdle: "本次启动后还没有请求",
       rateTag: "倍率",
       ctxTag: "上下文",
       imgTag: "图片",
@@ -110,6 +114,10 @@ window.__ModuleLoader__.load({
       freeTag: "free",
       paidTag: "uses credits",
       modelCount: "models",
+      cacheHit: "cache hit",
+      cacheLast: "latest",
+      cacheTurns: "turns",
+      cacheIdle: "no requests yet this session",
       rateTag: "rate",
       ctxTag: "ctx",
       imgTag: "image",
@@ -359,6 +367,7 @@ window.__ModuleLoader__.load({
       const credits = variant?.credits
       const creditAccounts = Array.isArray(credits?.accounts) ? credits.accounts : []
       const creditTotal = credits?.totalSize ?? creditAccounts.reduce((sum, a) => sum + (Number(a.size) || 0), 0)
+      const cache = variant?.cache
 
       return h(React.Fragment, null,
         h("div", null,
@@ -419,6 +428,14 @@ window.__ModuleLoader__.load({
           // distinction is the actionable one, so it is stated once.
           h("div", { className: "wb-note", style: { margin: "0 0 6px" } },
             `${shown.length} ${L.modelCount} · ${L.freeTag} ${shown.filter((m) => m.free).length} · ${L.paidTag} ${shown.filter((m) => m.paid).length}`),
+          // The hit rate is what decides whether a long conversation is cheap or
+          // expensive, and until now it could only be inferred from a bill. The
+          // count of turns is part of the answer: 0 turns is "not measured yet",
+          // which must never be rendered as "0%".
+          h("div", { className: "wb-note", style: { margin: "0 0 6px" } },
+            cache?.turns > 0
+              ? `${L.cacheHit} ${(cache.rate * 100).toFixed(1)}% (${L.cacheLast} ${(cache.lastRate * 100).toFixed(1)}% · ${cache.turns} ${L.cacheTurns})`
+              : `${L.cacheHit} — (${L.cacheIdle})`),
           h("div", { className: "wb-models" },
             shown.length === 0
               ? h("div", { className: "wb-note" }, "—")
