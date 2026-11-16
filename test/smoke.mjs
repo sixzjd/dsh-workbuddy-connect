@@ -144,6 +144,18 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the account toolbar stays on one line', async () => {
+  // With flex-wrap the three buttons slid under the dropdown and the row read
+  // as two unrelated groups. The toolbar is nowrap and the actions are pinned
+  // to the right; assert the CSS rule AND that the markup uses it.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /\.wb-row\.wb-row-nowrap\{[^}]*flex-wrap:\s*nowrap/)
+  const from = source.indexOf('wb-account-block')
+  const to = source.indexOf('auth?.accountRestricted', from)
+  assert.match(source.slice(from, to), /className:\s*"wb-row wb-row-nowrap"/)
+})
+
 await checkAsync('the account toolbar matches the Qoder pattern', async () => {
   // One row holds: a labelled current-account dropdown, add, delete-current
   // and clear-all — the same four operations Qoder offers for a PAT. The

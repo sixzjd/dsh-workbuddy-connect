@@ -187,6 +187,13 @@ window.__ModuleLoader__.load({
       .wb-dot.wb-dot-load{background:var(--dsw-alias-state-warning-primary,#d98416)}
       .wb-body{padding:2px 16px 16px;display:flex;flex-direction:column;gap:14px}
       .wb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      /* The account toolbar has to stay on ONE line: with flex-wrap the three
+         actions slid onto a second line under the dropdown, so the row read as
+         two unrelated groups. */
+      .wb-row.wb-row-nowrap{flex-wrap:nowrap;min-width:0}
+      .wb-row-nowrap .wb-account-label{flex:none}
+      .wb-row-nowrap .wb-dd{flex:0 1 auto;min-width:120px;max-width:280px}
+      .wb-row-nowrap .wb-row-actions{flex:none;white-space:nowrap}
       .wb-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
       .wb-label{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary,#74747c)}
       .wb-badge{font-size:11px;padding:2px 8px;border-radius:99px;border:.5px solid var(--dsw-alias-border-l2,#dedee3);color:var(--dsw-alias-label-secondary,#74747c);white-space:nowrap}
@@ -563,7 +570,7 @@ window.__ModuleLoader__.load({
           // Both editions render this identical block — only the realm's account
           // list behind it differs.
           h("div", { className: "wb-account-block" },
-            h("div", { className: "wb-row" },
+            h("div", { className: "wb-row wb-row-nowrap" },
               h("span", { className: "wb-label wb-account-label" },
                 h("span", { className: "wb-dot wb-dot-on", "aria-hidden": "true" }),
                 L.accounts),
