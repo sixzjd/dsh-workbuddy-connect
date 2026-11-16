@@ -48,11 +48,13 @@ window.__ModuleLoader__.load({
       refresh: "刷新目录",
       refreshing: "刷新中…",
       models: "模型开关",
-      modelsHint: "关闭的模型从 DSH 模型选择器中隐藏。",
+      modelsHint: "关闭的模型从 DSH 模型选择器中隐藏。模型后的标签来自上游自己的声明（如「限时免费」「夜间折扣」）；上游不提供会员/档位字段，所以这里只显示它真说了什么，不猜。",
       search: "搜索模型 / ID",
       enableAll: "全部开启",
       disableAll: "全部关闭",
       freeTag: "免费",
+      paidTag: "需积分",
+      modelCount: "个模型",
       rateTag: "倍率",
       ctxTag: "上下文",
       imgTag: "图片",
@@ -101,11 +103,13 @@ window.__ModuleLoader__.load({
       refresh: "Refresh catalog",
       refreshing: "Refreshing…",
       models: "Model toggles",
-      modelsHint: "Disabled models are hidden from DSH's model picker.",
+      modelsHint: "Disabled models are hidden from DSH's model picker. The tags after a model are the upstream's own labels (e.g. “limited-time free”, “night discount”); the upstream exposes no membership or tier field, so only what it actually says is shown.",
       search: "search models / id",
       enableAll: "Enable all",
       disableAll: "Disable all",
       freeTag: "free",
+      paidTag: "uses credits",
+      modelCount: "models",
       rateTag: "rate",
       ctxTag: "ctx",
       imgTag: "image",
@@ -154,6 +158,9 @@ window.__ModuleLoader__.load({
       .wb-badge{font-size:11px;padding:2px 8px;border-radius:99px;border:.5px solid var(--dsw-alias-border-l2,#dedee3);color:var(--dsw-alias-label-secondary,#74747c);white-space:nowrap}
       .wb-badge.wb-good{color:var(--dsw-alias-state-business-primary,#4176e6);border-color:currentColor}
       .wb-badge.wb-free{color:var(--dsw-alias-state-success-primary,#2f9e44);border-color:currentColor}
+      /* An upstream-declared label (limit-time free, night discount) is
+         information, so it stays quiet rather than warning-coloured. */
+      .wb-badge.wb-upstream{color:var(--dsw-alias-state-business-primary,#4176e6);border-color:currentColor}
       .wb-input,.wb-button{height:30px;padding:0 10px;color:var(--dsw-alias-label-primary,#25252a);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,#d4d6db);border-radius:var(--dsw-radius-md,8px);font:inherit;font-size:13px}
       .wb-input{flex:1;min-width:160px}
       .wb-update-action{display:inline-flex;align-items:center;gap:8px;min-width:0}
@@ -218,6 +225,11 @@ window.__ModuleLoader__.load({
         h("span", { className: "wb-model-name", title: m.name }, m.name),
         h("span", { className: "wb-model-id", title: m.id }, m.id),
         m.free ? h("span", { className: "wb-badge wb-free" }, L.freeTag) : null,
+        // The upstream's own labels (限时免费 / 夜间折扣 / any future 订阅优先)
+        // are rendered verbatim. That is the whole point: the plugin shows what
+        // the upstream declares rather than guessing at a tier — the same rule
+        // the reasoning levels follow.
+        ...(Array.isArray(m.badges) ? m.badges.map((b) => h("span", { key: "b-" + b, className: "wb-badge wb-upstream" }, b)) : []),
         m.rate ? h("span", { className: "wb-badge" }, `${L.rateTag} ${m.rate}`) : null,
         m.rateUnknown ? h("span", { className: "wb-badge" }, "—") : null,
         m.contextWindow ? h("span", { className: "wb-badge" }, `${L.ctxTag} ${ctxText(m.contextWindow)}`) : null)
@@ -402,6 +414,11 @@ window.__ModuleLoader__.load({
             h("span", { className: "wb-label" }, L.models),
             h("input", { className: "wb-input", style: { maxWidth: 180, marginLeft: "auto" }, placeholder: L.search, value: query, onChange: (e) => setQuery(e.target.value) })),
           h("div", { className: "wb-note", style: { margin: "4px 0 6px" } }, L.modelsHint),
+          // A count, not a badge on every row: nearly every model costs credits,
+          // and a tag repeated 22 times carries no information. The free/free
+          // distinction is the actionable one, so it is stated once.
+          h("div", { className: "wb-note", style: { margin: "0 0 6px" } },
+            `${shown.length} ${L.modelCount} · ${L.freeTag} ${shown.filter((m) => m.free).length} · ${L.paidTag} ${shown.filter((m) => m.paid).length}`),
           h("div", { className: "wb-models" },
             shown.length === 0
               ? h("div", { className: "wb-note" }, "—")

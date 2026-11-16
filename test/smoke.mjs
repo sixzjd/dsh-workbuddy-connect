@@ -16,6 +16,7 @@ import {
   normalizeCredits,
   normalizeCreditsDocument,
   parseModelCatalog,
+  rateIsPaid,
   prepareChatBody,
   prepareInternationalChatBody,
   regionOf,
@@ -399,6 +400,102 @@ check('drops a model without a budget', () => {
 check('marks a zero-rate model free', () => {
   const models = parseModelCatalog(CATALOG, true)
   assert.equal(models[0].billing.free, true)
+})
+check('marks a rate-bearing model as paid', () => {
+  // "Which models cost me credits" is the question the model-toggle list has to
+  // answer, and the upstream publishes no membership field to answer it with
+  // (measured 2026-11-16 across /v3/config, both legacy personal-models
+  // documents, the billing packages and the account JWT). The one per-model
+  // signal that does exist is the rate, so a positive rate is what "paid" means
+  // here — a fact the upstream states, not a hand-maintained guess.
+  const models = parseModelCatalog(CATALOG, true)
+  const hy3 = models.find(m => m.id === 'hy3')
+  assert.equal(hy3.billing.paid, true)
+})
+check('a zero-rate model is not paid', () => {
+  const models = parseModelCatalog(CATALOG, true)
+  assert.equal(models[0].billing.paid, false)
+})
+check('a row that declares no rate claims neither free nor paid', () => {
+  // Inventing "paid" for a row with no `credits` would be the same mistake as
+  // inventing "free": the plugin would be quoting a price the upstream never
+  // stated.
+  const models = parseModelCatalog(CATALOG, true)
+  const singular = models.find(m => m.id === 'singular')
+  assert.equal(singular.billing.paid, false)
+})
+check('a live zero-factor promotion clears the paid mark', () => {
+  const model = modelWithCurrentPromotion({
+    id: 'promoted',
+    billing: { credits: 'x0.79', free: false, paid: true },
+    promotions: [{ start: Date.now() - 3600000, end: Date.now() + 3600000, factor: 0, label: 'Free now', priority: 1 }],
+  })
+  assert.equal(model.billing.free, true)
+  assert.equal(model.billing.paid, false)
+})
+check('an ended promotion does not keep a paid claim it cannot stand behind', () => {
+  // The lapsed branch reports `rateUnknown`: the price is not known, so the row
+  // must not claim "paid" any more than it may claim "free".
+  const model = modelWithCurrentPromotion({
+    id: 'lapsed',
+    billing: { credits: 'x0.00', free: true, paid: false },
+    promotions: [{ start: Date.now() - 7200000, end: Date.now() - 3600000, factor: 0, label: '限时免费', priority: 1 }],
+  })
+  assert.equal(model.billing.rateUnknown, true)
+  assert.notEqual(model.billing.paid, true)
+})
+check('a saved row that predates the flag still reports paid', () => {
+  // The saved catalog on disk stores normalized records, and one written
+  // before this flag existed has no `paid` key at all. Reading the stored
+  // boolean would then silently report "free" for a x0.29 model, so the answer
+  // is re-derived from the rate that IS stored.
+  assert.equal(rateIsPaid({ credits: 'x0.29' }), true)
+  assert.equal(rateIsPaid({ credits: 'x0.00' }), false)
+  assert.equal(rateIsPaid({ credits: 'x1.62' }), true)
+})
+check('a rate marked unknown never claims paid', () => {
+  // A lapsed promotion leaves the stale rate behind with `rateUnknown`. That
+  // number is not a current price, so it cannot support a tier claim either.
+  assert.equal(rateIsPaid({ credits: 'x0.79', rateUnknown: true }), false)
+})
+check('a row with no rate at all claims nothing', () => {
+  assert.equal(rateIsPaid({}), false)
+  assert.equal(rateIsPaid(undefined), false)
+  assert.equal(rateIsPaid({ credits: 'free' }), false)
+})
+check('reads an upstream label that arrives in tags', () => {
+  // The live CN documents carry the promotional labels in `tags`, not in
+  // `promotions` (measured 2026-11-16: hy3 and hy4free both arrive as
+  // ["craft", "badge:限时免费:#FF0000"]). Reading only `promotions` dropped
+  // every one of them, so the toggle list showed no label the upstream had
+  // actually published.
+  const models = parseModelCatalog({
+    models: [{ id: 'tagged', name: 'Tagged', credits: 'x0.05', maxInputTokens: 1000, maxOutputTokens: 1000, tags: ['craft', 'badge:限时免费:#FF0000'] }],
+    agent: { agents: [{ name: 'cli', models: ['tagged'] }] },
+  }, true)
+  assert.deepEqual(models[0].billing.badges, ['限时免费'])
+})
+check('a capability tag is not a badge', () => {
+  // `craft`, `text-to-image` and `enterprise:selfhost` describe what a model
+  // does; only the `badge:` prefix marks a label meant for a human.
+  const models = parseModelCatalog({
+    models: [{ id: 'cap', name: 'Cap', credits: 'x0.05', maxInputTokens: 1000, maxOutputTokens: 1000, tags: ['craft', 'text-to-image', 'enterprise:selfhost'] }],
+    agent: { agents: [{ name: 'cli', models: ['cap'] }] },
+  }, true)
+  assert.deepEqual(models[0].billing.badges ?? [], [])
+})
+check('parsing the same catalog twice does not accumulate labels', () => {
+  // The parser must not mutate the document it was handed: the catalog object
+  // is cached and re-parsed on refresh, and a label that piled up would read
+  // `限时免费 · 限时免费` in the toggle list.
+  const doc = {
+    models: [{ id: 'twice', name: 'Twice', credits: 'x0.05', maxInputTokens: 1000, maxOutputTokens: 1000, tags: ['badge:限时免费:#FF0000'] }],
+    agent: { agents: [{ name: 'cli', models: ['twice'] }] },
+  }
+  parseModelCatalog(doc, true)
+  const second = parseModelCatalog(doc, true)
+  assert.deepEqual(second[0].billing.badges, ['限时免费'])
+  assert.equal(doc.models[0].tags.length, 1)
 })
 check('nests the reasoning record where the adapter reads it', () => {
   const models = parseModelCatalog(CATALOG, true)
