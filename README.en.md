@@ -1,6 +1,6 @@
 # DSH WorkBuddy Connect
 
-**简体中文** | [English](./README.en.md)
+[简体中文](./README.md) | **English**
 
 Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). One plugin serves both WorkBuddy product lines: **one settings card** (with a tab per edition, the same interaction as the Qoder card), each with its own provider, credential and model catalog, never mixed:
 
