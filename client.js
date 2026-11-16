@@ -185,6 +185,7 @@ window.__ModuleLoader__.load({
       .wb-dot.wb-dot-load{background:var(--dsw-alias-state-warning-primary,#d98416)}
       .wb-body{padding:2px 16px 16px;display:flex;flex-direction:column;gap:14px}
       .wb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .wb-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
       .wb-label{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary,#74747c)}
       .wb-badge{font-size:11px;padding:2px 8px;border-radius:99px;border:.5px solid var(--dsw-alias-border-l2,#dedee3);color:var(--dsw-alias-label-secondary,#74747c);white-space:nowrap}
       .wb-badge.wb-good{color:var(--dsw-alias-state-business-primary,#4176e6);border-color:currentColor}
@@ -518,23 +519,23 @@ window.__ModuleLoader__.load({
         h("div", null,
           h("div", { className: "wb-row" },
             h("span", { className: "wb-label" }, auth?.state === "signed-in" ? L.signedIn : L.signedOut),
-            h("span", { className: `wb-badge${auth?.state === "signed-in" ? " wb-good" : ""}` },
-              auth?.state === "signed-in" ? (auth.nickname ?? variant?.appName) : L.signedOut),
             auth?.state === "signed-in"
-              ? h(React.Fragment, null,
-                  h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void post(AUTH_PATH, { action: "logout", provider }, status.authKey) }, L.logout),
-                  // The desktop app re-signs in behind the plugin's back and
-                  // rotates its own session, so adopting that session again has
-                  // to stay reachable while signed in — otherwise a rotated
-                  // credential can only be replaced by signing out first.
-                  variant?.desktopAvailable === true
-                    ? h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void importDesktop() }, L.importDesktop)
-                    : null)
-              : h(React.Fragment, null,
-                  h("button", { type: "button", className: "wb-button wb-primary", disabled: busy, onClick: () => void beginLogin() }, L.signIn),
-                  variant?.desktopAvailable === true
-                    ? h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void importDesktop() }, L.importDesktop)
-                    : null)),
+              ? h("span", { className: "wb-badge wb-good" }, auth.nickname ?? variant?.appName)
+              : null,
+            h("div", { className: "wb-row-actions" },
+              auth?.state === "signed-in"
+                ? h(React.Fragment, null,
+                    h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void post(AUTH_PATH, { action: "logout", provider }, status.authKey) }, L.logout),
+                    // The desktop app can rotate its session behind the plugin's
+                    // back, so this stays reachable while signed in.
+                    variant?.desktopAvailable === true
+                      ? h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void importDesktop() }, L.importDesktop)
+                      : null)
+                : h(React.Fragment, null,
+                    h("button", { type: "button", className: "wb-button wb-primary", disabled: busy, onClick: () => void beginLogin() }, L.signIn),
+                    variant?.desktopAvailable === true
+                      ? h("button", { type: "button", className: "wb-button", disabled: busy, onClick: () => void importDesktop() }, L.importDesktop)
+                      : null))),
           auth?.state === "signed-in" ? h("div", { className: "wb-note", style: { marginTop: 4 } },
             [auth.domain ? `${L.domain}: ${auth.domain}` : null, auth.expiresAt ? ` · ${L.expires}: ${timeText(auth.expiresAt)}` : null].filter(Boolean).join("")) : null,
           // The account area.
@@ -607,10 +608,10 @@ window.__ModuleLoader__.load({
         variant?.auth?.state === "signed-in" ? h("div", null,
           h("div", { className: "wb-row" },
             h("span", { className: "wb-label" }, L.catalog),
-            h("span", { className: `wb-badge${catalog.source === "live" ? " wb-good" : ""}` },
-              catalog.source === "live" ? L.catalogLive : catalog.source === "saved" ? L.catalogSaved : L.catalogFallback,
-              catalog.fetchedAt ? ` · ${L.catalogUpdated} ${timeText(catalog.fetchedAt)}` : ""),
-            h("button", { type: "button", className: "wb-button", disabled: busy || loading, onClick: () => void post(MODELS_PATH, { action: "refresh", provider }, status.modelsKey) }, loading ? L.refreshing : L.refresh)),
+            h("div", { className: "wb-row-actions" },
+              // The source/timestamp badge is deliberately gone: it duplicated
+              // information and took the whole row hostage. Only the action stays.
+              h("button", { type: "button", className: "wb-button", disabled: busy || loading, onClick: () => void post(MODELS_PATH, { action: "refresh", provider }, status.modelsKey) }, loading ? L.refreshing : L.refresh))),
           catalog.error ? h("div", { className: "wb-error", style: { marginTop: 4 } }, L.catalogError + catalog.error) : null,
           h("div", { className: "wb-row", style: { marginTop: 6 } },
             h("label", { className: "wb-check" },

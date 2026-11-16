@@ -144,6 +144,28 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the card keeps action buttons to the right of their row', async () => {
+  // Sign-out/import and catalog refresh ended up next to the label, leaving a
+  // long empty right half. They share a flex container that pushes them right.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /\.wb-row-actions\{[^}]*margin-left:\s*auto/)
+  // Both rows actually use it, not just an orphan CSS rule.
+  const logout = source.indexOf('L.logout')
+  assert.ok(logout !== -1 && source.slice(logout - 400, logout).includes('wb-row-actions'))
+  const refresh = source.indexOf('L.refresh)')
+  assert.ok(refresh !== -1 && source.slice(refresh - 400, refresh).includes('wb-row-actions'))
+})
+await checkAsync('the catalog row no longer renders a source badge', async () => {
+  // The live/saved badge with its timestamp sat between the label and the
+  // refresh button; it was noise, and the user asked for it gone.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const row = source.slice(source.indexOf('L.catalog)'), source.indexOf('L.catalog)') + 700)
+  assert.doesNotMatch(row, /catalogUpdated/)
+  assert.doesNotMatch(row, /catalog\.source === "live"/)
+})
+
 await checkAsync('the account hint is short and names what is kept', async () => {
   // A sentence explaining OAuth and the desktop app did not fit the row and
   // said more than the action needs to: all the user needs to know is that a
