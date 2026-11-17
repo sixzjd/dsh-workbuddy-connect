@@ -22,6 +22,7 @@ import {
   regionOf,
   withGatewayChatHeaders,
   withPromptCacheKey,
+  WorkBuddyUpstreamClient,
 } from '../lib/upstream.js'
 import { fallbackFor, WorkBuddyCatalog } from '../lib/catalog.js'
 import { accumulateCacheUsage, emptyCacheUsage, usageFromSseText } from '../lib/cachestats.js'
@@ -30,6 +31,10 @@ import { MAX_DELIVERABLE_BODY_BYTES, createWorkBuddyShim } from '../lib/shim.js'
 import { modelIdentityKeysOf, WORKBUDDY_VARIANTS } from '../lib/variants.js'
 import { deriveAtRestKey, deriveAtRestKeyId, isEncryptedFieldWrapper, openEncryptedField } from '../lib/atrest.js'
 import { createAccountStore } from '../lib/accounts.js'
+import {
+  DEFAULT_CHECKIN_MINUTE, accountTag, createCheckInStore, isPastCheckinTime,
+  CheckInScheduler, isSettled, msUntilNextCheckin, normalizeCheckinMinute, utc8Date,
+} from '../lib/checkin.js'
 import { WorkBuddyCredentialStore } from '../lib/auth.js'
 import { writeJsonAtomic } from '../lib/auth.js'
 import { existsSync } from 'node:fs'
@@ -144,6 +149,21 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the card exposes the check-in controls', async () => {
+  // The check-in block mirrors Qoder's: an opt-in switch, a UTC+8 time, a
+  // manual button and a capped log. Asserted against the bundle source because
+  // the card runs in the browser.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  for (const token of ['L.checkInOn', 'L.checkInTime', 'L.checkInNow', 'L.checkInLogs', 'CHECKIN_PATH']) {
+    assert.ok(source.includes(token), `check-in UI is missing ${token}`)
+  }
+  // The switch must post to the route, not just change local state.
+  assert.match(source, /setCheckIn[\s\S]{0,200}action:\s*"set"/)
+  assert.match(source, /CHECKIN_PATH[\s\S]{0,200}action:\s*"now"/)
+  assert.match(source, /CHECKIN_PATH[\s\S]{0,200}action:\s*"clear-logs"/)
+})
+
 await checkAsync('the account toolbar stays on one line', async () => {
   // With flex-wrap the three buttons slid under the dropdown and the row read
   // as two unrelated groups. The toolbar is nowrap and the actions are pinned
@@ -761,6 +781,196 @@ await checkAsync('a store given a data dir never falls back to the real profile'
   // And the legacy path it would fall back to lives under the same dir, so no
   // write can escape.
   assert.ok(store.ownPath.startsWith(dir), `ownPath escaped the data dir: ${store.ownPath}`)
+})
+
+console.log('check-in bookkeeping')
+check('UTC+8 date and wall clock', () => {
+  // 2026-11-17 02:00 UTC is already the 17th in China. A UTC date would shift
+  // the "day" by eight hours and let a sweep claim on the wrong date.
+  assert.equal(utc8Date(Date.parse('2026-11-17T02:00:00Z')), '2026-11-17')
+  assert.equal(utc8Date(Date.parse('2026-11-16T16:00:00Z')), '2026-11-17')
+})
+check('normalizes the check-in minute onto the upstream window', () => {
+  assert.equal(normalizeCheckinMinute(undefined), 605)
+  assert.equal(normalizeCheckinMinute(900), 900)
+  assert.equal(normalizeCheckinMinute(540), 600, 'before 10:00 the upstream serves yesterday')
+  assert.equal(normalizeCheckinMinute(9999), 605)
+})
+check('next check-in is always in the future', () => {
+  const now = Date.parse('2026-11-17T02:00:00Z') // 10:00 UTC+8
+  assert.ok(msUntilNextCheckin(605, now) > 0)
+  assert.ok(msUntilNextCheckin(605, now) <= 2 * 86400_000)
+})
+check('only a claimed day counts as settled', () => {
+  const today = '2026-11-17'
+  assert.equal(isSettled({ date: today, status: 'claimed' }, today, 'a', true), true)
+  assert.equal(isSettled({ date: today, status: 'already-claimed' }, today, 'a', true), true)
+  // Failures must stay retryable: an early "no campaign" cannot burn the day.
+  assert.equal(isSettled({ date: today, status: 'no-campaign' }, today, 'a', true), false)
+  assert.equal(isSettled({ date: today, status: 'error' }, today, 'a', true), false)
+  assert.equal(isSettled(undefined, today, 'a', true), false)
+})
+check('a legacy header row settles only the sole account', () => {
+  const today = '2026-11-17'
+  const record = { date: today, status: 'claimed' }
+  assert.equal(isSettled(record, today, 'a', true), true)
+  // With several accounts the header cannot say which one was claimed.
+  assert.equal(isSettled(record, today, 'a', false), false)
+  // An explicit per-account row wins over the header.
+  assert.equal(isSettled({ ...record, accounts: { a: { date: today, status: 'error' } } }, today, 'a', true), false)
+})
+await checkAsync('check-in status normalizes the upstream document', async () => {
+  // The upstream carries twenty-odd fields; the card needs four. A region with
+  // no activity is normal, not an error.
+  const client = new WorkBuddyUpstreamClient({
+    resolveAppVersion: async () => ({}),
+    resolveChatIdentity: async () => ({}),
+  })
+  const original = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ code: 0, data: {
+    active: true, today_checked_in: true, streak_days: 3, daily_credit: 100, today_credit: 100,
+    theme_name: 'Buddy加油站',
+  } }), { status: 200 })
+  try {
+    const status = await client.checkInStatus({ region: 'cn', accessToken: 't', uid: 'u', domain: 'www.codebuddy.cn' })
+    assert.deepEqual(status, { active: true, claimed: true, streakDays: 3, dailyCredit: 100, todayCredit: 100, theme: 'Buddy加油站' })
+  } finally {
+    globalThis.fetch = original
+  }
+})
+await checkAsync('an already-claimed day is a normal result, not a failure', () => {
+  // The upstream answers HTTP 400 + code 10001. Treating that as an error would
+  // mark a successful day as failed and keep retrying it forever.
+  return (async () => {
+    const client = new WorkBuddyUpstreamClient({ resolveAppVersion: async () => ({}), resolveChatIdentity: async () => ({}) })
+    const original = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({ code: 10001, msg: '今天已签到，请明天再来' }), { status: 400 })
+    try {
+      const result = await client.checkIn({ region: 'cn', accessToken: 't', uid: 'u', domain: 'www.codebuddy.cn' })
+      assert.deepEqual(result, { status: 'already-claimed', amount: 0, message: '今天已签到，请明天再来' })
+    } finally {
+      globalThis.fetch = original
+    }
+  })()
+})
+
+await checkAsync('a catch-up sweep checks each unsettled account once', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  const calls = []
+  const scheduler = new CheckInScheduler({
+    store,
+    isEnabled: () => true,
+    targets: [{
+      variantId: 'cn',
+      minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      accounts: async () => [{ hash: 'a', nickname: '甲' }, { hash: 'b', nickname: '乙' }],
+      checkIn: async (account) => { calls.push(account.hash); return { status: 'claimed', amount: 100 } },
+    }],
+  })
+  const outcomes = await scheduler.sweepAll(true)
+  assert.equal(outcomes.length, 2)
+  assert.deepEqual(calls, ['a', 'b'])
+  // A second catch-up the same day does not re-POST a claimed day.
+  const again = await scheduler.sweepAll(true)
+  assert.equal(again.length, 0)
+  assert.deepEqual(calls, ['a', 'b'])
+})
+await checkAsync('a failed check-in stays retryable the same day', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  let attempt = 0
+  const scheduler = new CheckInScheduler({
+    store,
+    isEnabled: () => true,
+    targets: [{
+      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      accounts: async () => [{ hash: 'a', nickname: '甲' }],
+      checkIn: async () => {
+        attempt++
+        return attempt === 1 ? { status: 'error', message: 'transient' } : { status: 'claimed', amount: 100 }
+      },
+    }],
+  })
+  await scheduler.sweepAll(true)
+  assert.equal(attempt, 1)
+  // "error" is not settled: an early failure must not burn the day.
+  await scheduler.sweepAll(true)
+  assert.equal(attempt, 2)
+})
+await checkAsync('manual check-in retries even a settled day', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  let calls = 0
+  const scheduler = new CheckInScheduler({
+    store,
+    isEnabled: () => true,
+    targets: [{
+      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      accounts: async () => [{ hash: 'a', nickname: '甲' }],
+      checkIn: async () => { calls++; return { status: 'already-claimed', amount: 100 } },
+    }],
+  })
+  await scheduler.sweepAll(true)
+  assert.equal(calls, 1)
+  // The user pressed the button: the upstream gets the last word again.
+  const manual = await scheduler.checkInNow('cn')
+  assert.equal(calls, 2)
+  assert.equal(manual[0].status, 'already-claimed')
+})
+await checkAsync('one failing account does not stop the others', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  const calls = []
+  const scheduler = new CheckInScheduler({
+    store,
+    isEnabled: () => true,
+    targets: [{
+      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      accounts: async () => [{ hash: 'a' }, { hash: 'b' }, { hash: 'c' }],
+      checkIn: async (account) => {
+        calls.push(account.hash)
+        if (account.hash === 'b') throw new Error('network')
+        return { status: 'claimed', amount: 100 }
+      },
+    }],
+  })
+  const results = await scheduler.sweepAll(true)
+  assert.deepEqual(calls, ['a', 'b', 'c'])
+  assert.equal(results.length, 3)
+  assert.equal(results[1].status, 'error')
+  assert.equal(results[2].status, 'claimed')
+})
+
+await checkAsync('check-in records are per account and keep a capped log', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  const rec = { date: '2026-11-17', timestamp: Date.now(), status: 'claimed', amount: 100,
+    account: accountTag({ id: 'a', nickname: '甲' }) }
+  store.write('cn', rec)
+  store.write('cn', { ...rec, account: accountTag({ id: 'b', nickname: '乙' }), status: 'already-claimed' })
+  // `write` records the latest attempt at the top level and keeps every attempt
+  // in the log; the scheduler maintains per-account settled state separately.
+  assert.equal(store.read('cn').status, 'already-claimed')
+  assert.equal(store.read('cn').logs.length, 2)
+  assert.equal(store.read('global'), undefined)
+  // Capped at 30; a scheduler that runs for a month must not grow forever.
+  for (let i = 0; i < 40; i++) store.write('cn', { ...rec, timestamp: rec.timestamp + i + 10 })
+  assert.equal(store.read('cn').logs.length, 30)
+})
+await checkAsync('clearing logs keeps the account state', async () => {
+  const dir = makeTempDir()
+  const store = createCheckInStore(dir)
+  store.write('cn', { date: '2026-11-17', timestamp: Date.now(), status: 'claimed',
+    account: accountTag({ id: 'a' }) })
+  store.clearLogs('cn')
+  assert.deepEqual(store.read('cn').logs, [])
+  assert.equal(store.read('cn').status, 'claimed')
+})
+check('an account tag never carries a credential', () => {
+  const tag = accountTag({ id: 'a', hash: 'h', uidShort: 'abcdefgh', nickname: '甲',
+    accessToken: 'SECRET', refreshToken: 'SECRET' })
+  assert.equal(JSON.stringify(tag).includes('SECRET'), false)
 })
 
 console.log('thinking levels')

@@ -25,6 +25,7 @@ window.__ModuleLoader__.load({
     const AUTH_PATH = `${BASE}/auth`;
     const UPDATE_PATH = `${BASE}/update`;
     const ACCOUNTS_PATH = `${BASE}/accounts`;
+    const CHECKIN_PATH = `${BASE}/checkin`;
 
     const zh = {
       title: "WorkBuddy",
@@ -59,6 +60,19 @@ window.__ModuleLoader__.load({
       accounts: "当前账号",
       removeCurrent: "删除当前",
       clearAll: "清除全部",
+      checkIn: "每日签到",
+      checkInOn: "自动签到",
+      checkInHint: "每天自动为每个账号领取 Buddy 加油站积分；无活动的版本自动跳过。",
+      checkInTime: "签到时间（UTC+8）",
+      checkInNow: "立即签到",
+      checkInLogs: "签到日志",
+      checkInClear: "清空日志",
+      checkInEmpty: "还没有签到记录",
+      checkInClaimed: (n) => `已领取 ${n} 积分`,
+      checkInAlready: "今天已领取",
+      checkInNoCampaign: "当前没有签到活动",
+      checkInBefore: "活动窗口尚未开启",
+      checkInError: "签到失败",
       removeAccount: "移除",
       accountExpired: "已过期",
       accountActive: "当前",
@@ -130,6 +144,19 @@ window.__ModuleLoader__.load({
       accounts: "Current account",
       removeCurrent: "Delete current",
       clearAll: "Clear all",
+      checkIn: "Daily check-in",
+      checkInOn: "Auto check-in",
+      checkInHint: "Claim the Buddy 加油站 credits for every account each day; editions with no campaign are skipped.",
+      checkInTime: "Check-in time (UTC+8)",
+      checkInNow: "Check in now",
+      checkInLogs: "Check-in log",
+      checkInClear: "Clear log",
+      checkInEmpty: "No check-ins recorded yet",
+      checkInClaimed: (n) => `Claimed ${n} credits`,
+      checkInAlready: "Already claimed today",
+      checkInNoCampaign: "No active campaign",
+      checkInBefore: "Window not open yet",
+      checkInError: "Check-in failed",
       removeAccount: "Remove",
       accountExpired: "expired",
       accountActive: "active",
@@ -225,6 +252,9 @@ window.__ModuleLoader__.load({
       /* Settings-row shape, matching the DSH settings page (and the usage
          dashboard plugin): title + description on the left, one control right. */
       .wb-account-block{margin-top:2px}
+      .wb-checkin{margin-top:6px;border-top:.5px solid var(--dsw-alias-border-l2,#dedee3);padding-top:4px}
+      .wb-checkin-log{display:flex;align-items:center;gap:8px;padding:3px 0}
+      .wb-checkin-logs{max-height:160px;overflow-y:auto}
       .wb-account-label{display:flex;align-items:center;gap:6px}
       .wb-config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,#dedee3)}
       .wb-config-label{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -271,6 +301,20 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(n) || n <= 0) return ""
       if (n >= 1e6) return `${Math.round(n / 1e5) / 10}M`
       return `${Math.round(n / 1e3)}K`
+    }
+
+    /** Minute-of-day to an <input type="time"> value. */
+    const minuteToTime = (minute) => {
+      const m = Number.isFinite(minute) ? minute : 605
+      return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+    }
+    /** One log row's short result label. */
+    const checkInStatusText = (log) => {
+      if (log.status === "claimed") return L.checkInClaimed(log.amount ?? 100)
+      if (log.status === "already-claimed") return L.checkInAlready
+      if (log.status === "no-campaign") return L.checkInNoCampaign
+      if (log.status === "before-window") return L.checkInBefore
+      return `${L.checkInError}: ${log.message ?? ""}`.slice(0, 60)
     }
 
     const isStatus = (value) => typeof value === "object" && value !== null && !Array.isArray(value) && value.status === "ok"
@@ -512,6 +556,8 @@ window.__ModuleLoader__.load({
       // Guarded: an older host does not send this field at all, and the card must
       // keep working against one. Declared before the handlers below, which read it.
       const accounts = Array.isArray(variant?.accounts) ? variant.accounts : []
+      const checkIn = variant?.checkIn
+      const setCheckIn = (patch) => post(CHECKIN_PATH, { action: "set", provider, ...patch }, status?.checkInKey)
       /** Make a stored account active. The server refreshes catalog and credits. */
       const switchAccount = (hash) => post(ACCOUNTS_PATH, { action: "activate", provider, hash }, status?.accountsKey)
       /** Forget one account. Removing the active one promotes another server-side. */
@@ -610,6 +656,59 @@ window.__ModuleLoader__.load({
                     }, L.clearAll)
                   : null)),
             h("div", { className: "wb-note", style: { margin: "4px 0 0" } }, L.addAccountHint)),
+          // Daily check-in, in the same settings-row shape Qoder uses. The
+          // schedule is opt-in: no claim is made until the user enables it.
+          auth?.state === "signed-in" ? h("div", { className: "wb-checkin" },
+            h("div", { className: "wb-config-row" },
+              h("div", { className: "wb-config-label" },
+                h("div", { className: "wb-config-title" }, L.checkIn),
+                h("div", { className: "wb-config-desc" }, L.checkInHint)),
+              h("div", { className: "wb-config-control" },
+                h("label", { className: "wb-check" },
+                  h("input", {
+                    type: "checkbox",
+                    checked: checkIn?.enabled === true,
+                    disabled: busy,
+                    onChange: (e) => void setCheckIn({ enabled: e.target.checked }),
+                  }),
+                  h("span", null, L.checkInOn)))),
+            h("div", { className: "wb-row", style: { marginTop: 4 } },
+              h("label", { className: "wb-label" }, L.checkInTime),
+              h("input", {
+                className: "wb-input",
+                style: { maxWidth: 120 },
+                type: "time",
+                value: minuteToTime(checkIn?.minuteOfDay),
+                disabled: busy,
+                onChange: (e) => {
+                  const [h_, m_] = (e.target.value || "10:05").split(":").map(Number)
+                  if (Number.isFinite(h_) && Number.isFinite(m_)) void setCheckIn({ minuteOfDay: h_ * 60 + m_ })
+                },
+              }),
+              h("div", { className: "wb-row-actions" },
+                h("button", {
+                  type: "button",
+                  className: "wb-button",
+                  disabled: busy,
+                  onClick: () => void post(CHECKIN_PATH, { action: "now", provider }, status?.checkInKey),
+                }, L.checkInNow))),
+            Array.isArray(checkIn?.record?.logs) && checkIn.record.logs.length > 0
+              ? h("div", { className: "wb-checkin-logs" },
+                  h("div", { className: "wb-row", style: { marginTop: 6 } },
+                    h("span", { className: "wb-label" }, L.checkInLogs),
+                    h("div", { className: "wb-row-actions" },
+                      h("button", {
+                        type: "button",
+                        className: "wb-button wb-link",
+                        disabled: busy,
+                        onClick: () => void post(CHECKIN_PATH, { action: "clear-logs", provider }, status?.checkInKey),
+                      }, L.checkInClear))),
+                  checkIn.record.logs.slice(0, 5).map((log) => h("div", { key: log.id, className: "wb-checkin-log" },
+                    h("span", { className: "wb-note" }, new Date(log.timestamp).toLocaleString("zh-CN", { hour12: false })),
+                    h("span", { className: `wb-badge${log.status === "claimed" ? " wb-free" : ""}` }, checkInStatusText(log)),
+                    h("span", { className: "wb-account-name" }, log.account?.nickname ?? log.account?.uidShort ?? ""))))
+              : null)
+          : null,
           auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
             L.accountRestricted,
             h("div", { className: "wb-note", style: { marginTop: 2 } }, String(auth.accountRestricted))) : null,
