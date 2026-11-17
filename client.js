@@ -50,7 +50,6 @@ window.__ModuleLoader__.load({
       refresh: "刷新目录",
       refreshing: "刷新中…",
       models: "模型开关",
-      modelsHint: "关闭的模型从 DSH 模型选择器中隐藏。模型后的标签来自上游自己的声明（如「限时免费」「夜间折扣」）；上游不提供会员/档位字段，所以这里只显示它真说了什么，不猜。",
       search: "搜索模型 / ID",
       enableAll: "全部开启",
       disableAll: "全部关闭",
@@ -134,7 +133,6 @@ window.__ModuleLoader__.load({
       refresh: "Refresh catalog",
       refreshing: "Refreshing…",
       models: "Model toggles",
-      modelsHint: "Disabled models are hidden from DSH's model picker. The tags after a model are the upstream's own labels (e.g. “limited-time free”, “night discount”); the upstream exposes no membership or tier field, so only what it actually says is shown.",
       search: "search models / id",
       enableAll: "Enable all",
       disableAll: "Disable all",
@@ -739,7 +737,6 @@ window.__ModuleLoader__.load({
           h("div", { className: "wb-row", style: { marginTop: 10 } },
             h("span", { className: "wb-label" }, L.models),
             h("input", { className: "wb-input", style: { maxWidth: 180, marginLeft: "auto" }, placeholder: L.search, value: query, onChange: (e) => setQuery(e.target.value) })),
-          h("div", { className: "wb-note", style: { margin: "4px 0 6px" } }, L.modelsHint),
           // A count, not a badge on every row: nearly every model costs credits,
           // and a tag repeated 22 times carries no information. The free/free
           // distinction is the actionable one, so it is stated once.
