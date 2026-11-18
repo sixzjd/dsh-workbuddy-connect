@@ -747,6 +747,31 @@ await checkAsync('clear does not resurrect accounts from the legacy file', async
   assert.deepEqual(await store.accounts.list(), [])
 })
 
+await checkAsync('a token refresh updates the active account copy too', async () => {
+  // refreshNow() wrote only the legacy single file while resolve() reads from the
+  // account store. The two copies diverge: the gateway gets a stale token and the
+  // card reports "expired" even though the refresh produced a valid one.
+  const dir = makeTempDir()
+  const store = new WorkBuddyCredentialStore({
+    variant: WORKBUDDY_VARIANTS[0],
+    dataDir: dir,
+    refresh: async () => ({ accessToken: 'token-refreshed', expiresInSec: 3600 }),
+  })
+  const old = {
+    accessToken: 'token-old', refreshToken: 'refresh',
+    expiresAtMs: Date.now() - 1000, domain: 'www.codebuddy.cn',
+    uid: 'uid-one', nickname: '一',
+  }
+  await store.accounts.save(old)
+  await store.saveOwn(old)
+  // Force the refresh path (expired token).
+  const resolved = await store.resolve()
+  assert.equal(resolved.accessToken, 'token-refreshed')
+  // The account-store copy is what resolve() reads next time: it MUST be updated.
+  assert.equal((await store.accounts.active()).accessToken, 'token-refreshed',
+    'the account copy was not refreshed; the next request will use the stale token')
+})
+
 await checkAsync('the credential store reads the active account', async () => {
   // The store is what every request goes through, so activating an account has to
   // change what resolve() returns — that is the whole mechanism of a switch.
