@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "WorkBuddy",
+    "title": "workbuddy连接器",
     "description": "接入 WorkBuddy 模型：设备授权登录、模型目录与开关、额度查看。"
   }
 }

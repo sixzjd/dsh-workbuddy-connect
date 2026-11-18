@@ -177,6 +177,20 @@ await checkAsync('the check-in time uses the themed dropdown, not a native input
   assert.equal(block.includes('type: "time"'), false, 'the native time input is still there')
 })
 
+await checkAsync('the plugin list title uses the renamed identity', async () => {
+  // The settings page reads locale/meta.title for the plugin list row; the
+  // package name must stay unchanged so DSH can still match an installed copy
+  // to a published version and offer the in-app update.
+  const { readFileSync } = await import('node:fs')
+  const zh = JSON.parse(readFileSync(new URL('../locale/zh.json', import.meta.url), 'utf8'))
+  const en = JSON.parse(readFileSync(new URL('../locale/en.json', import.meta.url), 'utf8'))
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(zh.meta.title, 'workbuddy连接器')
+  assert.equal(en.meta.title, 'workbuddy连接器')
+  assert.equal(pkg.displayName, 'workbuddy连接器')
+  assert.equal(pkg.name, '@sixzjd/dsh-workbuddy-connect', 'renaming the package would break in-app updates')
+})
+
 await checkAsync('the card exposes the check-in controls', async () => {
   // The check-in block mirrors Qoder's: an opt-in switch, a UTC+8 time, a
   // manual button and a capped log. Asserted against the bundle source because

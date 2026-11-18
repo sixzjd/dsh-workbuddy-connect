@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "WorkBuddy",
+    "title": "workbuddy连接器",
     "description": "Connect WorkBuddy models: device-authorization sign-in, model catalog and toggles, quota view."
   }
 }
