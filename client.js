@@ -276,8 +276,11 @@ window.__ModuleLoader__.load({
       .wb-dd-active{background:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
       .wb-dd-selected{font-weight:500}
       .wb-dd-check{margin-left:auto;flex:none;color:var(--dsw-alias-label-primary,#25252a)}
-      .wb-button.wb-link{height:auto;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-state-danger-primary,#d94a4a);font-size:12px}
-      .wb-button.wb-link:hover{background:transparent;text-decoration:underline}
+      /* Danger actions share the ordinary button's shape (border, radius,
+         background) and only change the colour, so the card reads as one set
+         of controls rather than a mix of buttons and bare links. */
+      .wb-button.wb-danger{color:var(--dsw-alias-state-danger-primary,#d94a4a);border-color:currentColor}
+      .wb-button.wb-danger:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f1f3)}
       .wb-quota{display:flex;flex-direction:column;gap:6px}
       .wb-quota-row{display:flex;align-items:center;gap:8px;font-size:12px}
       .wb-bar{flex:1;height:6px;border-radius:99px;background:var(--dsw-alias-border-l2,#dedee3);overflow:hidden}
@@ -704,7 +707,7 @@ window.__ModuleLoader__.load({
                     h("div", { className: "wb-row-actions" },
                       h("button", {
                         type: "button",
-                        className: "wb-button wb-link",
+                        className: "wb-button wb-danger",
                         disabled: busy,
                         onClick: () => void post(CHECKIN_PATH, { action: "clear-logs", provider }, status?.checkInKey),
                       }, L.checkInClear))),

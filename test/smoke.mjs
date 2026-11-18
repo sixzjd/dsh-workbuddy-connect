@@ -149,6 +149,21 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the clear-log button is a bordered danger button', async () => {
+  // It used the link variant — no border, transparent background — while every
+  // other action in the card is a bordered .wb-button. It should share that
+  // shape and only change the colour to the theme's danger token.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const from = source.indexOf('L.checkInClear')
+  assert.ok(from !== -1)
+  const around = source.slice(source.lastIndexOf('h("button"', from), from)
+  // It inherits the border/radius/background from .wb-button and only overrides
+  // the colour with the theme's danger token.
+  assert.match(source, /\.wb-button\.wb-danger\{color:\s*var\(--dsw-alias-state-danger-primary[^}]*border-color:\s*currentColor/)
+  assert.match(around, /className:\s*"wb-button wb-danger"/)
+})
+
 await checkAsync('the check-in time uses the themed dropdown, not a native input', async () => {
   // <input type="time"> opens the OS-native picker, which does not follow the
   // DSH settings theme. The time must use the same Dropdown component the
