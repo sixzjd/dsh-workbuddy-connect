@@ -2,7 +2,7 @@
 
 [English](./README.en.md) | **简体中文**
 
-把 **WorkBuddy**（国际版 / 国内版）的模型接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的社区插件。一个插件同时服务两条 WorkBuddy 产品线：**一张设置卡片**（卡片内用页签切国际版 / 国内版，和 Qoder 卡片同一套交互），各有一个 provider、一套凭证与模型目录，互不混用：
+把 **WorkBuddy**（国际版 / 国内版）的模型接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的社区插件。一个插件同时服务两条 WorkBuddy 产品线：**一张设置卡片**（卡片内用页签切国际版 / 国内版），各有一个 provider、一套凭证与模型目录，互不混用：
 
 | 变体 | provider id | 卡片页签 | 上游站点 |
 |---|---|---|---|
@@ -64,8 +64,6 @@ dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
 # 从本地目录安装（开发用）
 dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
 ```
-
-> **别用 `add dsh-workbuddy-connect`。** npm 上这个名字**已被另一个插件占用**——`dsh-workbuddy-connect@0.7.9`（作者 `corrinehu`，2026-10-20 发布），那是另一套实现，装到的是它而不是本仓库。本插件只在 GitHub 上分发，安装请写全 `github:sixzjd/`。
 
 按你使用的 profile 换 `--profile` 的值（`web` / `desktop` / `tui`）。装到哪个 profile，数据就落在哪个 profile 目录里，web / desktop / tui 各自独立。
 

@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | **English**
 
-Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). One plugin serves both WorkBuddy product lines: **one settings card** (with a tab per edition, the same interaction as the Qoder card), each with its own provider, credential and model catalog, never mixed:
+Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). One plugin serves both WorkBuddy product lines: **one settings card** (with a tab per edition), each with its own provider, credential and model catalog, never mixed:
 
 | Variant | provider id | Card tab | Upstream site |
 |---|---|---|---|
@@ -55,8 +55,6 @@ dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
 # from a local checkout (development)
 dsh plugin --profile web add "file:/absolute/path/接入workbuddy"
 ```
-
-> **Do not use `add dsh-workbuddy-connect`.** That npm name is **taken by a different plugin** — `dsh-workbuddy-connect@0.7.9` (author `corrinehu`, published 2026-10-20) is a separate implementation, so the bare name installs it, not this repository. This connector is distributed on GitHub only; always spell out `github:sixzjd/`.
 
 Swap `--profile` for the profile you use (`web` / `desktop` / `tui`). The data lands in that profile's directory; web, desktop and tui stay independent.
 
