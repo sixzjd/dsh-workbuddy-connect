@@ -1,6 +1,6 @@
 {
   "name": "@sixzjd/dsh-workbuddy-connect",
-  "displayName": "WorkBuddy",
+  "displayName": "workbuddy连接器",
   "description": "将 WorkBuddy（国际版 / 国内版）的模型接入 DeepSeek Harness — bring WorkBuddy (Global & CN) models into DeepSeek Harness.",
   "icon": "./assets/icon.svg",
   "version": "0.3.4",

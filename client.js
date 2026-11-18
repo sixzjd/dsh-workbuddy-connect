@@ -301,10 +301,21 @@ window.__ModuleLoader__.load({
       return `${Math.round(n / 1e3)}K`
     }
 
-    /** Minute-of-day to an <input type="time"> value. */
-    const minuteToTime = (minute) => {
-      const m = Number.isFinite(minute) ? minute : 605
-      return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+    /**
+     * Time choices for the check-in dropdown. Every half hour from 10:00 to
+     * 23:30, plus 00:00–09:30 for people who prefer a late-night claim; the
+     * upstream window opens at 10:00 UTC+8 so earlier slots simply re-attempt
+     * the previous window, which is harmless (the endpoint is idempotent).
+     */
+    const checkInTimeOptions = () => {
+      const out = []
+      for (let minute = 0; minute < 1440; minute += 30) {
+        out.push({
+          value: String(minute),
+          label: `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`,
+        })
+      }
+      return out
     }
     /** One log row's short result label. */
     const checkInStatusText = (log) => {
@@ -672,16 +683,12 @@ window.__ModuleLoader__.load({
                   h("span", null, L.checkInOn)))),
             h("div", { className: "wb-row", style: { marginTop: 4 } },
               h("label", { className: "wb-label" }, L.checkInTime),
-              h("input", {
-                className: "wb-input",
-                style: { maxWidth: 120 },
-                type: "time",
-                value: minuteToTime(checkIn?.minuteOfDay),
+              h(Dropdown, {
+                label: L.checkInTime,
+                value: String(checkIn?.minuteOfDay ?? 605),
                 disabled: busy,
-                onChange: (e) => {
-                  const [h_, m_] = (e.target.value || "10:05").split(":").map(Number)
-                  if (Number.isFinite(h_) && Number.isFinite(m_)) void setCheckIn({ minuteOfDay: h_ * 60 + m_ })
-                },
+                options: checkInTimeOptions(),
+                onChange: (value) => void setCheckIn({ minuteOfDay: Number(value) }),
               }),
               h("div", { className: "wb-row-actions" },
                 h("button", {

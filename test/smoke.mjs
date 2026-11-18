@@ -149,6 +149,19 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the check-in time uses the themed dropdown, not a native input', async () => {
+  // <input type="time"> opens the OS-native picker, which does not follow the
+  // DSH settings theme. The time must use the same Dropdown component the
+  // account switcher uses.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const from = source.indexOf('L.checkInTime')
+  const to = source.indexOf('checkIn.record.logs', from)
+  const block = source.slice(from, to === -1 ? from + 1200 : to)
+  assert.match(block, /h\(Dropdown/, 'the check-in time is not a themed Dropdown')
+  assert.equal(block.includes('type: "time"'), false, 'the native time input is still there')
+})
+
 await checkAsync('the card exposes the check-in controls', async () => {
   // The check-in block mirrors Qoder's: an opt-in switch, a UTC+8 time, a
   // manual button and a capped log. Asserted against the bundle source because
@@ -852,6 +865,34 @@ await checkAsync('an already-claimed day is a normal result, not a failure', () 
       globalThis.fetch = original
     }
   })()
+})
+
+await checkAsync('a scheduler startup failure never becomes an unhandled rejection', async () => {
+  // start() fires the catch-up sweep without awaiting it. If listing accounts
+  // throws (e.g. a credential file is unreadable at boot), the rejected promise
+  // used to escape as an unhandled rejection — a background convenience feature
+  // must never take down the host process.
+  const unhandled = []
+  const onUnhandled = (reason) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const dir = makeTempDir()
+    const scheduler = new CheckInScheduler({
+      store: createCheckInStore(dir),
+      isEnabled: () => true,
+      targets: [{
+        variantId: 'cn', minuteOfDay: () => DEFAULT_CHECKIN_MINUTE,
+        accounts: async () => { throw new Error('accounts exploded') },
+        checkIn: async () => ({ status: 'claimed', amount: 100 }),
+      }],
+    })
+    scheduler.start()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    scheduler.dispose()
+    assert.deepEqual(unhandled, [], 'the startup sweep leaked a rejection')
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
 })
 
 await checkAsync('a catch-up sweep checks each unsettled account once', async () => {
