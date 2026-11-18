@@ -9,7 +9,9 @@ Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https
 | International | `workbuddy-global` | 国际版 | www.workbuddy.ai |
 | China | `workbuddy` | 国内版 | copilot.tencent.com / www.codebuddy.cn |
 
-> **The international edition is free for a limited time**: the live catalog carries three models at a `x0.00` multiplier — `deepseek-v4.1-flash` (DeepSeek-V4.1-Flash, 300K/128K), `hy3` (192K/64K) and `step-5-preview` (300K/64K) — plus `deepseek-v4.1-flash-sg` at `x0.03`. The free tier is an upstream promotion, and the plugin reads the **live** multiplier: when the promotion ends, the card drops the "free" badge on its own rather than keeping a promise the upstream has already withdrawn.
+> **Free models follow the live catalog**: the plugin reads the upstream's current multiplier, not a list written into documentation. Models at `x0.00` get a "free" badge; when a promotion ends the badge disappears and the card's multiplier updates with it.
+>
+> Measured 2026-11-17: the international edition's free model is `hy4flash-free`; `deepseek-v4.1-flash-sg` is now `x0.11` and no longer free.
 
 ## Why a plugin instead of a plain provider
 
