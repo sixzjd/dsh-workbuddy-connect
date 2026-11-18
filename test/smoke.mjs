@@ -15,6 +15,7 @@ import {
   modelWithCurrentPromotion,
   normalizeCredits,
   normalizeCreditsDocument,
+  normalizeCreditsSummary,
   parseModelCatalog,
   rateIsPaid,
   prepareChatBody,
@@ -1093,6 +1094,117 @@ check('only the declared levels appear', () => {
   assert.equal(fields.thinkingLevelMap.xhigh, null)
 })
 
+console.log('credit summary')
+check('reads the summary document the official app uses', () => {
+  // The old endpoint (`get-user-resource`, with /v2) only reports the gift
+  // packages; the subscription allowance lives in a second row that it omits
+  // entirely — 200 reported against 648 actual. The summary endpoint reports
+  // both and carries the total itself.
+  const summary = {
+    Packages: [
+      { PackageCode: 'A', CycleTotalCapacity: '200', CycleRemainCapacity: '200', CycleUsedCapacity: '0', CapacityUnit: 'credits', TotalCount: 2 },
+      { PackageCode: 'B', CycleTotalCapacity: '500', CycleRemainCapacity: '447.99', CycleUsedCapacity: '52.01', CapacityUnit: 'credits', TotalCount: 1 },
+    ],
+    TotalCredits: 647.99,
+    SubscriptionPackageName: '体验版',
+    IsPaidUser: false,
+  }
+  const result = normalizeCreditsSummary(summary)
+  assert.equal(result.total, 647.99)
+  assert.equal(result.totalSize, 700)
+  assert.equal(result.accounts.length, 2)
+  assert.equal(result.accounts[0].remain, 200)
+  assert.equal(result.accounts[1].remain, 447.99)
+  assert.equal(result.accounts[1].size, 500)
+  assert.equal(result.plan, '体验版')
+  assert.equal(result.paid, false)
+})
+check('prefers the named credit groups the plan page groups by', () => {
+  // `CreditGroups` carries the labels the official plan page shows; `Packages`
+  // holds the same numbers under opaque codes. Untouched 0/0 groups are noise.
+  const result = normalizeCreditsSummary({
+    CreditGroups: [
+      { Kind: 'plan_base', Name: '套餐基础积分', CycleTotalCapacity: '500', CycleRemainCapacity: '447.99' },
+      { Kind: 'plan_bonus', Name: '套餐赠送积分', CycleTotalCapacity: '0', CycleRemainCapacity: '0' },
+      { Kind: 'benefit', Name: '平台奖励积分', CycleTotalCapacity: '200', CycleRemainCapacity: '200' },
+    ],
+    Packages: [{ PackageCode: 'OPAQUE', CycleTotalCapacity: '999', CycleRemainCapacity: '999' }],
+    TotalCredits: 647.99,
+  })
+  assert.deepEqual(result.accounts.map(a => a.packageName), ['套餐基础积分', '平台奖励积分'])
+  assert.deepEqual(result.accounts.map(a => a.kind), ['plan_base', 'benefit'])
+  assert.equal(result.total, 647.99)
+})
+
+check('a fractional summary total is not rounded away', () => {
+  // The upstream sends 647.989999999…; the card must show a credit balance,
+  // not a float artefact.
+  const result = normalizeCreditsSummary({ Packages: [], TotalCredits: 647.9899999999999 })
+  assert.equal(result.total, 647.99)
+})
+check('an empty summary is not an error', () => {
+  assert.deepEqual(normalizeCreditsSummary({}).accounts, [])
+})
+check('the summary total does not exceed the sum of its rows', () => {
+  // If the upstream ever reports a total larger than what the rows add up to,
+  // the rows are authoritative: a total that cannot be explained is a number
+  // the user cannot verify.
+  const result = normalizeCreditsSummary({
+    Packages: [{ CycleTotalCapacity: '100', CycleRemainCapacity: '100' }],
+    TotalCredits: 999,
+  })
+  assert.equal(result.total, 100)
+})
+
+await checkAsync('fetchCredits reads the summary endpoint, not just the partial list', async () => {
+  // The partial endpoint reports only the gift packages. If fetchCredits stops
+  // consulting the summary, a plan holder's balance silently drops to the gift
+  // total — the exact bug this fixed (200 reported against 648).
+  const client = new WorkBuddyUpstreamClient({ resolveAppVersion: async () => ({}), resolveChatIdentity: async () => ({}) })
+  const original = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url) => {
+    calls.push(String(url))
+    if (String(url).includes('get-user-resource-summary')) {
+      return new Response(JSON.stringify({ code: 0, data: {
+        CreditGroups: [{ Kind: 'plan_base', Name: '套餐基础积分', CycleTotalCapacity: '500', CycleRemainCapacity: '447.99' }],
+        TotalCredits: 447.99,
+      } }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ code: 0, data: { Accounts: [
+      { PackageName: 'gift', CycleCapacitySize: 200, CycleCapacityRemain: 200, CapacityType: 1 },
+    ] } }), { status: 200 })
+  }
+  try {
+    const credits = await client.fetchCredits({ region: 'cn', accessToken: 't', uid: 'u', domain: 'www.codebuddy.cn' })
+    assert.ok(calls.some(url => url.includes('get-user-resource-summary')), 'the summary endpoint was never called')
+    assert.equal(credits.total, 447.99)
+    assert.equal(credits.accounts[0].packageName, '套餐基础积分')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+console.log('model-unavailable classification')
+check('11102 is classified as a missing model, not a client error', () => {
+  // The catalog can still list a model the upstream has withdrawn; the request
+  // then answers 11102 "service info not found". Classifying it as a generic
+  // client error hid the one useful fact — that another model will work.
+  const body = JSON.stringify({ code: 11102, msg: 'model [hy4flash-free] service info not found' })
+  assert.equal(classifyUpstreamError(400, body), 'no_such_model')
+})
+check('11102 classifies the same whatever the HTTP status', () => {
+  // The same business code arrives as 400 in one path and inside a 200 envelope
+  // in another. The meaning is in the code, not the status.
+  const body = JSON.stringify({ code: 11102, msg: 'model [x] service info not found' })
+  assert.equal(classifyUpstreamError(200, body), 'no_such_model')
+  assert.equal(classifyUpstreamError(503, body), 'no_such_model')
+})
+check('a 400 without 11102 is still a client error', () => {
+  // Guard against over-broad matching that would swallow real bad requests.
+  assert.equal(classifyUpstreamError(400, JSON.stringify({ code: 11133, msg: 'bad param' })), 'client')
+})
+
 console.log('cache stats')
 check('reads usage out of a forwarded event stream', () => {
   const text = [
@@ -1149,6 +1261,40 @@ check('reports a cold first turn as zero, not as missing', () => {
   assert.equal(state.turns, 1)
   assert.equal(state.rate, 0)
   assert.equal(state.lastRate, 0)
+})
+
+await checkAsync('a withdrawn model answers 404 and names the model', async () => {
+  // The row stays in the catalog while the upstream has no service for it, so
+  // the user can pick it and get a bare JSON body. 404 (not 5xx) stops the retry
+  // policy, and the message has to name the model and say to switch.
+  const shim = createWorkBuddyShim({
+    store: { resolve: async () => ({ accessToken: 'fake', uid: 'u', region: 'cn' }) },
+    client: {
+      chatStream: async () => ({
+        ok: false,
+        kind: 'no_such_model',
+        status: 400,
+        message: JSON.stringify({ code: 11102, msg: 'model [hy4flash-free] service info not found' }),
+      }),
+    },
+    catalog: { current: () => [], all: () => [] },
+    logger: { warn() {}, error() {}, info() {}, debug() {} },
+    prepareBody: (raw) => raw,
+  })
+  await shim.ready
+  try {
+    const res = await fetch(`${shim.baseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${shim.token()}` },
+      body: JSON.stringify({ model: 'hy4flash-free', messages: [{ role: 'user', content: 'hi' }], stream: true }),
+    })
+    assert.equal(res.status, 404)
+    const body = await res.text()
+    assert.match(body, /hy4flash-free/)
+    assert.match(body, /[Ss]witch to another model/)
+  } finally {
+    await shim.close()
+  }
 })
 
 await checkAsync('the shim reports usage on both the streaming and the plain path', async () => {
