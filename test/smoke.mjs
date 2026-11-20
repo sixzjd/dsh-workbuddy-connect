@@ -150,6 +150,19 @@ await checkAsync('the card reads its version from the manifest, not a second lit
   const source = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(source, /new URL\('\.\.\/package\.json', import\.meta\.url\)/, 'lib/index.js no longer reads package.json for its version')
 })
+await checkAsync('the clear-log button is outside the scrolling log area', async () => {
+  // The log panel has overflow-y:auto. Its scrollbar takes ~12px, so a button
+  // inside it sat a few pixels left of the other right-aligned buttons. The
+  // title row (which holds the button) must be outside the scroll container;
+  // only the log lines scroll.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const from = source.indexOf('className: "wb-checkin-logs"')
+  assert.ok(from !== -1, 'the scrolling log area is gone')
+  const clear = source.indexOf('L.checkInClear')
+  assert.ok(clear < from, 'the clear-log button is still inside the scrolling area')
+})
+
 await checkAsync('the clear-log button is a bordered danger button', async () => {
   // It used the link variant — no border, transparent background — while every
   // other action in the card is a bordered .wb-button. It should share that
@@ -906,6 +919,22 @@ await checkAsync('check-in status normalizes the upstream document', async () =>
     globalThis.fetch = original
   }
 })
+await checkAsync('a no-campaign refusal is not reported as already claimed', async () => {
+  // The international gateway answers 10001 with "签到活动未开启或已过期" —
+  // the same business code as "already checked in", but a completely different
+  // meaning. Reporting it as already-claimed made the scheduler treat the day
+  // as settled, so a campaign that opened later that day was never retried.
+  const client = new WorkBuddyUpstreamClient({ resolveAppVersion: async () => ({}), resolveChatIdentity: async () => ({}) })
+  const original = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ code: 10001, msg: '签到活动未开启或已过期' }), { status: 400 })
+  try {
+    const result = await client.checkIn({ region: 'global', accessToken: 't', uid: 'u', domain: 'www.workbuddy.ai' })
+    assert.equal(result.status, 'no-campaign')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 await checkAsync('an already-claimed day is a normal result, not a failure', () => {
   // The upstream answers HTTP 400 + code 10001. Treating that as an error would
   // mark a successful day as failed and keep retrying it forever.

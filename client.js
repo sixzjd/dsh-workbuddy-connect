@@ -701,7 +701,10 @@ window.__ModuleLoader__.load({
                   onClick: () => void post(CHECKIN_PATH, { action: "now", provider }, status?.checkInKey),
                 }, L.checkInNow))),
             Array.isArray(checkIn?.record?.logs) && checkIn.record.logs.length > 0
-              ? h("div", { className: "wb-checkin-logs" },
+              ? h(React.Fragment, null,
+                  // The title row stays OUTSIDE the scroll container: its
+                  // scrollbar steals ~12px and pushed this button left of the
+                  // two above it. Only the log lines need to scroll.
                   h("div", { className: "wb-row", style: { marginTop: 6 } },
                     h("span", { className: "wb-label" }, L.checkInLogs),
                     h("div", { className: "wb-row-actions" },
@@ -711,10 +714,11 @@ window.__ModuleLoader__.load({
                         disabled: busy,
                         onClick: () => void post(CHECKIN_PATH, { action: "clear-logs", provider }, status?.checkInKey),
                       }, L.checkInClear))),
-                  checkIn.record.logs.slice(0, 5).map((log) => h("div", { key: log.id, className: "wb-checkin-log" },
-                    h("span", { className: "wb-note" }, new Date(log.timestamp).toLocaleString("zh-CN", { hour12: false })),
-                    h("span", { className: `wb-badge${log.status === "claimed" ? " wb-free" : ""}` }, checkInStatusText(log)),
-                    h("span", { className: "wb-account-name" }, log.account?.nickname ?? log.account?.uidShort ?? ""))))
+                  h("div", { className: "wb-checkin-logs" },
+                    checkIn.record.logs.slice(0, 5).map((log) => h("div", { key: log.id, className: "wb-checkin-log" },
+                      h("span", { className: "wb-note" }, new Date(log.timestamp).toLocaleString("zh-CN", { hour12: false })),
+                      h("span", { className: `wb-badge${log.status === "claimed" ? " wb-free" : ""}` }, checkInStatusText(log)),
+                      h("span", { className: "wb-account-name" }, log.account?.nickname ?? log.account?.uidShort ?? "")))))
               : null)
           : null,
           auth?.accountRestricted ? h("div", { className: "wb-error", style: { marginTop: 4 } },
