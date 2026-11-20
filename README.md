@@ -1,5 +1,6 @@
 # DSH WorkBuddy Connect
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![npm version](https://img.shields.io/npm/v/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![npm downloads](https://img.shields.io/npm/dm/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [English](./README.en.md) | **简体中文**
 
 把 **WorkBuddy**（国际版 / 国内版）的模型接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的社区插件。一个插件同时服务两条 WorkBuddy 产品线：**一张设置卡片**（卡片内用页签切国际版 / 国内版），各有一个 provider、一套凭证与模型目录，互不混用：

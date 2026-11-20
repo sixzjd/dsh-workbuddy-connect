@@ -1,5 +1,6 @@
 # DSH WorkBuddy Connect
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![npm version](https://img.shields.io/npm/v/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![npm downloads](https://img.shields.io/npm/dm/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [简体中文](./README.md) | **English**
 
 Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). One plugin serves both WorkBuddy product lines: **one settings card** (with a tab per edition), each with its own provider, credential and model catalog, never mixed:
