@@ -8,7 +8,7 @@ Bring **WorkBuddy** (international / China) models into [DeepSeek Harness](https
 | Variant | provider id | Card tab | Upstream site |
 |---|---|---|---|
 | International | `workbuddy-global` | 国际版 | www.workbuddy.ai |
-| China | `workbuddy` | 国内版 | copilot.tencent.com / www.codebuddy.cn |
+| China | `workbuddy` | 国内版 | www.codebuddy.cn |
 
 > **Free models follow the live catalog**: the plugin reads the upstream's current multiplier, not a list written into documentation. Models at `x0.00` get a "free" badge; when a promotion ends the badge disappears and the card's multiplier updates with it.
 >

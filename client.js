@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({
       clearAll: "清除全部",
       checkIn: "每日签到",
       checkInOn: "自动签到",
-      checkInHint: "每天自动为每个账号领取 Buddy 加油站积分；无活动的版本自动跳过。",
+      checkInHint: "每天自动为每个账号领取 Buddy 加油站积分",
       checkInTime: "签到时间（UTC+8）",
       checkInNow: "立即签到",
       checkInLogs: "签到日志",
@@ -90,7 +90,7 @@ window.__ModuleLoader__.load({
       imgTag: "图片",
       effortTag: "推理",
       maxWindow: "使用上游声明的最大上下文窗口",
-      maxWindowHint: "关闭时按上游的默认窗口发送请求（如 300K），开启时按最大窗口（如 1M）。",
+      maxWindowHint: "关闭时按上游的默认窗口发送请求（300K），开启时按最大窗口（1M）",
       credits: "额度",
       creditsNone: "暂无额度信息",
       creditsRemain: "剩余",
@@ -144,7 +144,7 @@ window.__ModuleLoader__.load({
       clearAll: "Clear all",
       checkIn: "Daily check-in",
       checkInOn: "Auto check-in",
-      checkInHint: "Claim the Buddy 加油站 credits for every account each day; editions with no campaign are skipped.",
+      checkInHint: "Claim the Buddy 加油站 credits for every account each day",
       checkInTime: "Check-in time (UTC+8)",
       checkInNow: "Check in now",
       checkInLogs: "Check-in log",
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
       imgTag: "image",
       effortTag: "reasoning",
       maxWindow: "Use the upstream's maximum context window",
-      maxWindowHint: "Off sends the upstream's default window (e.g. 300K); on sends the largest one (e.g. 1M).",
+      maxWindowHint: "Off sends the upstream's default window (300K); on sends the largest one (1M)",
       credits: "Quota",
       creditsNone: "No quota information yet",
       creditsRemain: "remaining",
@@ -498,7 +498,17 @@ window.__ModuleLoader__.load({
           if (!res.ok) throw new Error(String(res.status))
           const doc = await res.json()
           if (!mounted.current) return
-          if (doc?.status === "pending" && doc.authUrl) setLogin({ url: doc.authUrl, state: doc.state })
+          if (doc?.status === "pending" && doc.authUrl) {
+            setLogin({ url: doc.authUrl, state: doc.state })
+            // Open the authorization page straight away. The link below stays
+            // in the card as a fallback: a browser may block window.open from
+            // an async callback, and the human should still be able to finish.
+            try {
+              window.open(doc.authUrl, "_blank", "noopener,noreferrer")
+            } catch {
+              // A blocked popup is not a failed login — the link remains.
+            }
+          }
           else setNotice(doc?.error ?? L.failed)
         } catch {
           if (mounted.current) setNotice(L.failed)
@@ -751,19 +761,10 @@ window.__ModuleLoader__.load({
           h("div", { className: "wb-row", style: { marginTop: 10 } },
             h("span", { className: "wb-label" }, L.models),
             h("input", { className: "wb-input", style: { maxWidth: 180, marginLeft: "auto" }, placeholder: L.search, value: query, onChange: (e) => setQuery(e.target.value) })),
-          // A count, not a badge on every row: nearly every model costs credits,
-          // and a tag repeated 22 times carries no information. The free/free
-          // distinction is the actionable one, so it is stated once.
+          // A bare count: the paid count and the cache-hit readout were removed
+          // — neither helped somebody picking a model.
           h("div", { className: "wb-note", style: { margin: "0 0 6px" } },
-            `${shown.length} ${L.modelCount} · ${L.freeTag} ${shown.filter((m) => m.free).length} · ${L.paidTag} ${shown.filter((m) => m.paid).length}`),
-          // The hit rate is what decides whether a long conversation is cheap or
-          // expensive, and until now it could only be inferred from a bill. The
-          // count of turns is part of the answer: 0 turns is "not measured yet",
-          // which must never be rendered as "0%".
-          h("div", { className: "wb-note", style: { margin: "0 0 6px" } },
-            cache?.turns > 0
-              ? `${L.cacheHit} ${(cache.rate * 100).toFixed(1)}% (${L.cacheLast} ${(cache.lastRate * 100).toFixed(1)}% · ${cache.turns} ${L.cacheTurns})`
-              : `${L.cacheHit} — (${L.cacheIdle})`),
+            `${shown.length} ${L.modelCount} · ${L.freeTag} ${shown.filter((m) => m.free).length}`),
           h("div", { className: "wb-models" },
             shown.length === 0
               ? h("div", { className: "wb-note" }, "—")
@@ -860,7 +861,7 @@ window.__ModuleLoader__.load({
               h("span", { className: dotClass(status?.variants?.["workbuddy"]), "aria-hidden": "true" }),
               h("span", null, L.tabCN))),
           loadError && !status ? h("div", { className: "wb-error" }, loadError, " ", h("button", { type: "button", className: "wb-button", onClick: () => void load() }, L.retry)) : null,
-          status ? h(VariantSection, { provider: active, status, load, loading }) : h("div", { className: "wb-note" }, loading ? "…" : "—")) : null)
+          status ? h(VariantSection, { key: active, provider: active, status, load, loading }) : h("div", { className: "wb-note" }, loading ? "…" : "—")) : null)
     }
 
     /**

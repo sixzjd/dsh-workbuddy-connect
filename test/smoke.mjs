@@ -951,6 +951,50 @@ await checkAsync('an already-claimed day is a normal result, not a failure', () 
   })()
 })
 
+await checkAsync('the retained hints have no trailing period', async () => {
+  // The check-in and context-window hints end without '。'; a period on a
+  // one-line settings hint reads as an unfinished sentence.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /checkInHint: "每天自动为每个账号领取 Buddy 加油站积分",/)
+  assert.match(source, /maxWindowHint: "关闭时按上游的默认窗口发送请求（300K），开启时按最大窗口（1M）",/)
+})
+
+await checkAsync('login opens the authorization page and keeps the manual link', async () => {
+  // beginLogin used to only store the URL, leaving the user to click a link.
+  // It should open the page automatically while keeping the link as a fallback
+  // for browsers that block window.open from an async callback.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /window\.open\(doc\.authUrl,\s*"_blank"/, 'the authorization page is not opened automatically')
+  assert.match(source, /L\.openLogin/, 'the manual link was removed')
+})
+await checkAsync('the variant section is keyed so a pending login does not follow a tab switch', async () => {
+  // Without a key React reused the same VariantSection across tabs, so an
+  // international login URL stayed visible after switching to CN.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /h\(VariantSection, \{ key: active,/)
+})
+
+await checkAsync('the card no longer renders the noisy summary lines', async () => {
+  // The user asked to drop: the 'no campaign' appendix on the check-in hint,
+  // the two 'e.g.' examples on the context-window hint, the paid-model count
+  // and the cache-hit line.
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.equal(source.includes('无活动的版本自动跳过'), false)
+  assert.equal(source.includes('（如 300K）'), false)
+  assert.equal(source.includes('（如 1M）'), false)
+  // Only the word "如" was to go — the values themselves stay.
+  assert.ok(source.includes('（300K）') && source.includes('（1M）'), 'the window values were removed along with 如')
+  assert.equal(source.includes('L.paidTag} ${shown.filter'), false)
+  assert.equal(source.includes('cache?.turns > 0'), false)
+})
+
+
+
+
 await checkAsync('a scheduler startup failure never becomes an unhandled rejection', async () => {
   // start() fires the catch-up sweep without awaiting it. If listing accounts
   // throws (e.g. a credential file is unreadable at boot), the rejected promise
@@ -986,9 +1030,10 @@ await checkAsync('a catch-up sweep checks each unsettled account once', async ()
   const scheduler = new CheckInScheduler({
     store,
     isEnabled: () => true,
+    now: () => Date.parse('2026-11-20T09:00:00Z'), // 17:00 UTC+8, past 10:00
     targets: [{
       variantId: 'cn',
-      minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      minuteOfDay: () => DEFAULT_CHECKIN_MINUTE,
       accounts: async () => [{ hash: 'a', nickname: '甲' }, { hash: 'b', nickname: '乙' }],
       checkIn: async (account) => { calls.push(account.hash); return { status: 'claimed', amount: 100 } },
     }],
@@ -1008,8 +1053,9 @@ await checkAsync('a failed check-in stays retryable the same day', async () => {
   const scheduler = new CheckInScheduler({
     store,
     isEnabled: () => true,
+    now: () => Date.parse('2026-11-20T09:00:00Z'), // 17:00 UTC+8, past 10:00
     targets: [{
-      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      variantId: 'cn', minuteOfDay: () => DEFAULT_CHECKIN_MINUTE,
       accounts: async () => [{ hash: 'a', nickname: '甲' }],
       checkIn: async () => {
         attempt++
@@ -1030,8 +1076,9 @@ await checkAsync('manual check-in retries even a settled day', async () => {
   const scheduler = new CheckInScheduler({
     store,
     isEnabled: () => true,
+    now: () => Date.parse('2026-11-20T09:00:00Z'), // 17:00 UTC+8, past 10:00
     targets: [{
-      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      variantId: 'cn', minuteOfDay: () => DEFAULT_CHECKIN_MINUTE,
       accounts: async () => [{ hash: 'a', nickname: '甲' }],
       checkIn: async () => { calls++; return { status: 'already-claimed', amount: 100 } },
     }],
@@ -1050,8 +1097,9 @@ await checkAsync('one failing account does not stop the others', async () => {
   const scheduler = new CheckInScheduler({
     store,
     isEnabled: () => true,
+    now: () => Date.parse('2026-11-20T09:00:00Z'), // 17:00 UTC+8, past 10:00
     targets: [{
-      variantId: 'cn', minuteOfDay: DEFAULT_CHECKIN_MINUTE,
+      variantId: 'cn', minuteOfDay: () => DEFAULT_CHECKIN_MINUTE,
       accounts: async () => [{ hash: 'a' }, { hash: 'b' }, { hash: 'c' }],
       checkIn: async (account) => {
         calls.push(account.hash)
@@ -1290,6 +1338,39 @@ check('reports a cold first turn as zero, not as missing', () => {
   assert.equal(state.turns, 1)
   assert.equal(state.rate, 0)
   assert.equal(state.lastRate, 0)
+})
+
+await checkAsync('a transport failure on the CN chat host falls back to codebuddy.cn', async () => {
+  // copilot.tencent.com is intermittently unreachable while the same endpoint
+  // on www.codebuddy.cn answers 200. A transport failure there used to surface
+  // as a 502 to the user with a perfectly good gateway sitting unused.
+  const client = new WorkBuddyUpstreamClient({
+    resolveAppVersion: async () => ({}),
+    resolveChatIdentity: async () => ({
+      clientVersion: '2.63.2', appVersion: '5.8.4',
+      ideName: 'WorkBuddy', ideType: 'WorkBuddy',
+    }),
+  })
+  const original = globalThis.fetch
+  const hosts = []
+  globalThis.fetch = async (url) => {
+    const host = new URL(String(url)).host
+    hosts.push(host)
+    if (host === 'copilot.tencent.com') throw new TypeError('fetch failed')
+    return new Response('data: {"choices":[]}\n\ndata: [DONE]\n\n', {
+      status: 200, headers: { 'content-type': 'text/event-stream' },
+    })
+  }
+  try {
+    const result = await client.chatStream(
+      { region: 'cn', accessToken: 't', uid: 'u', domain: 'www.codebuddy.cn' },
+      JSON.stringify({ model: 'hy4free', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    assert.equal(result.ok, true, 'the fallback host was not tried')
+    assert.ok(hosts.includes('www.codebuddy.cn'), `hosts tried: ${hosts.join(', ')}`)
+  } finally {
+    globalThis.fetch = original
+  }
 })
 
 await checkAsync('a withdrawn model answers 404 and names the model', async () => {

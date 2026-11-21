@@ -8,7 +8,7 @@
 | 变体 | provider id | 卡片页签 | 上游站点 |
 |---|---|---|---|
 | 国际版 | `workbuddy-global` | 国际版 | www.workbuddy.ai |
-| 国内版 | `workbuddy` | 国内版 | copilot.tencent.com / www.codebuddy.cn |
+| 国内版 | `workbuddy` | 国内版 | www.codebuddy.cn |
 
 > **免费模型以实时目录为准**：插件读取的是上游当前倍率，而不是写在文档里的名单。倍率为 `x0.00` 的模型会显示「免费」角标；活动结束后角标会自动消失，卡片里的倍率同步更新
 >
