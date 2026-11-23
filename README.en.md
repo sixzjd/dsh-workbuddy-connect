@@ -52,14 +52,16 @@ DSH (pi-ai)  ──OpenAI──▶  127.0.0.1 shim  ──WorkBuddy──▶  ga
 Requires DSH core `0.2.0-rc.2` or newer, and Node.js `^22.19.0 || >=24.0.0`.
 
 ```sh
-# install from GitHub (recommended)
-dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
+# install from npm (recommended): this is what lets DSH check for and offer updates
+dsh plugin --profile web add @sixzjd/dsh-workbuddy-connect
 
-# from a local checkout (development)
+# from a local checkout (development, or to follow unreleased source; no update notices)
 dsh plugin --profile web add "file:/absolute/path/接入workbuddy"
 ```
 
 Swap `--profile` for the profile you use (`web` / `desktop` / `tui`). The data lands in that profile's directory; web, desktop and tui stay independent.
+
+**Why npm**: DSH's update check needs a versioned package source (`name@version`). An npm install gives the plugin page a version to compare against the registry, so it can offer an update. A GitHub or local-path install still works, but there is no version to compare, so the plugin page will not offer updates — upgrading means reinstalling by hand.
 
 > **Restart DSH after installing.** A plugin is loaded at boot from `package.json → dsh.profile.bundles`; the hot-reload receiver covers client modules, not the bundle itself.
 

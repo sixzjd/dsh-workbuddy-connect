@@ -54,14 +54,16 @@ DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协�
 前置条件：DSH 核心 `0.2.0-rc.2` 及以上；Node.js `^22.19.0 || >=24.0.0`。
 
 ```sh
-# 从 GitHub 安装（推荐）
-dsh plugin --profile web add github:sixzjd/dsh-workbuddy-connect
+# 从 npm 安装（推荐）：这样 DSH 能在插件页检查并提示更新
+dsh plugin --profile web add @sixzjd/dsh-workbuddy-connect
 
-# 从本地目录安装（开发用）
+# 从本地目录安装（开发或跟随未发布源码用；不会收到 DSH 的更新提示）
 dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
 ```
 
 按你使用的 profile 换 `--profile` 的值（`web` / `desktop` / `tui`）。装到哪个 profile，数据就落在哪个 profile 目录里，web / desktop / tui 各自独立。
+
+**为什么用 npm 安装**：DSH 的插件更新检查依赖版本化的包来源（`包名@版本`）。从 npm 安装时，插件页才能识别当前版本、比对 registry 上的新版本并给出更新入口。从 GitHub 或本地路径安装虽然能正常使用，但 DSH 没有可比对的版本号，插件页不会提示更新——升级得手动重装。
 
 > **装完要重启 DSH。** 插件是启动时按 `package.json → dsh.profile.bundles` 装载的，热重载只覆盖 client 侧的模块，不覆盖 bundle 本身。
 
