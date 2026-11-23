@@ -3,31 +3,30 @@
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![npm version](https://img.shields.io/npm/v/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![npm downloads](https://img.shields.io/npm/dm/@sixzjd/dsh-workbuddy-connect)](https://www.npmjs.com/package/@sixzjd/dsh-workbuddy-connect) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [English](./README.en.md) | **简体中文**
 
-把 **WorkBuddy**（国际版 / 国内版）的模型接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的社区插件。一个插件同时服务两条 WorkBuddy 产品线：**一张设置卡片**（卡片内用页签切国际版 / 国内版），各有一个 provider、一套凭证与模型目录，互不混用：
+把 **WorkBuddy**（国际版 / 国内版）的模型接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的社区插件。一个插件同时服务国际 / 国内版：**设置卡片**内有两个 provider、两套凭证与模型目录：
 
 | 变体 | provider id | 卡片页签 | 上游站点 |
 |---|---|---|---|
 | 国际版 | `workbuddy-global` | 国际版 | www.workbuddy.ai |
 | 国内版 | `workbuddy` | 国内版 | www.codebuddy.cn |
 
-> **免费模型以实时目录为准**：插件读取的是上游当前倍率，而不是写在文档里的名单。倍率为 `x0.00` 的模型会显示「免费」角标；活动结束后角标会自动消失，卡片里的倍率同步更新
+> **免费模型以实时目录为准**：插件读取的是上游当前倍率，而不是文档。倍率为 `x0.00` 的模型会显示「免费」角标；活动结束后角标会自动消失，卡片里的倍率同步更新
 >
-> 2026-11-17 实测：国际版免费的是 `hy4flash-free`；`deepseek-v4.1-flash-sg` 已是 `x0.11`，不再免费。
+> 2026-11-17 实测：国际版与国内版 `hy4flash-free` 模型限免
 
 ## 为什么需要插件，而不是直接配一个 provider
 
-WorkBuddy 的网关是一套**只认官方客户端**的封闭接口，DSH 的原生适配器够不着它：
+WorkBuddy 的网关是一套**只认官方客户端**的封闭接口，DSH 的原生适配器无法直接访问该接口：
 
 1. **User-Agent 门闸**：网关按 UA 分流，`deepseek-harness/*` 直接被拒（业务码 `11128`）。DSH 自己的适配器写死了这个 UA。
 2. **首条消息必须是 system**：国际版缺了就 `400 / 11128`。
 3. **字段方言**：`developer` 角色、`store` 字段、对象形态的 `tool_choice`、`max_completion_tokens` 别名、裸字符串的 `stop`、非字符串的 tool-call `arguments`——每一个都会被上游拒。
-4. **一整套归属头**：`X-Product`、`X-Domain`、`X-User-Id`、`X-Enterprise-Id`/`X-Tenant-Id`、`X-IDE-*`，以及**三个会一起校验的会话头**（`X-Conversation-ID`、`X-Conversation-Request-ID`、`X-Conversation-Message-ID`）——只给一个仍然 `11128`。
+4. **一组客户端身份与会话标识请求头**：`X-Product`、`X-Domain`、`X-User-Id`、`X-Enterprise-Id`/`X-Tenant-Id`、`X-IDE-*`，以及**三个会一起校验的会话头**（`X-Conversation-ID`、`X-Conversation-Request-ID`、`X-Conversation-Message-ID`）——只给一个仍然 `11128`。
 
 所以插件在宿主与上游之间插一层**回环 shim**：pi-ai 用标准 OpenAI-completions 跟 shim 说话，shim 用 WorkBuddy 的方言跟网关说话。
 
 ```
-DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协议──▶  网关
-                 共享密钥         方言改写              真实 accessToken
+DSH (pi-ai)  ──OpenAI 协议──▶  shim  ──WorkBuddy 协议──▶  网关
 ```
 
 **真实令牌从不离开这台机器**，也从不交给 pi-ai：shim 自己从凭据库里取。
@@ -37,8 +36,8 @@ DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协�
 - **两种登录方式**：
   - **设备授权**（主路径）：卡片上点「登录 WorkBuddy」→ 打开 WorkBuddy 授权页 → 回到卡片即完成，全程不需要 API Key。accessToken 到期前 5 分钟自动续期，续期失败时仍用未过期的旧令牌，不打断正在进行的对话。
   - **从桌面 App 导入**（便捷路径）：本机装了 WorkBuddy 桌面版且已经登录时，卡片上会多一个「从桌面 App 导入」——插件直接采用桌面版自己的登录态，免去浏览器往返。桌面版把令牌加密存盘（WorkBuddy 5.6.0 起），插件**调用桌面版自己的原生模块**取密钥来解密，不内置任何与构建相关的常量；桌面版没装、没登录或取不到密钥时，这一项不会出现。**已登录状态下这一项也一直可用**——桌面版会自己重新登录并轮换会话，插件手里那份副本会随之作废，这时再点一次「从桌面 App 导入」就能接上新的会话，不必先退出登录。
-- **会话失效会自己说**：上游拒收这份凭据时（例如桌面版换过会话），卡片会直接提示「上游拒绝了这份凭据」，而不是继续挂着「已登录」的假象。
-- **账号被限制会和会话失效分开说**：「上游拒收凭据」和「上游限制了这个账号」是两种病，只有前者能靠重新登录或重新导入治好。后者（业务码 `11140`）会单独提示「只有申诉才能解除」——实测重新导入、重新登录、用刚刷新出的新令牌都无效，官方桌面版同样被拒，见下文 2026-11-08 补记。
+- **会话失效时明确提示**：上游拒收这份凭据时（例如桌面版换过会话），卡片会直接提示「上游拒绝了这份凭据」，而不是继续挂着「已登录」的假象。
+- **账号被限制会和会话失效分开说**：「上游拒收凭据」和「上游限制了这个账号」是两种情况，需要分别处理：仅凭据失效可以通过重新登录或重新导入解决。后者（业务码 `11140`）会单独提示「只有申诉才能解除」——实测重新导入、重新登录、用刚刷新出的新令牌都无效，官方桌面版同样被拒，见下文 2026-11-08 补记。
 - **两个 realm 各自独立**：两版各有自己的凭据文件、路由、已保存目录与额度。`workbuddy.ai` 的令牌在 `codebuddy.cn` 上无效，反之亦然，两套永不互串。
 - **模型目录三级降级（live → saved → fallback）**：卡片明示当前列表来自哪里——「实时列表（更新于 …）」、「上次保存的模型列表」、「内置模型列表（尚未从 WorkBuddy 更新）」；最近一次拉取失败时附带原因，并可手动「刷新目录」。
 - **模型自由开关**：按名称/ID 即时搜索，单个开关，或「全部开启 / 全部关闭」；关闭的模型从 DSH 的模型选择器里消失。
@@ -46,7 +45,6 @@ DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协�
 - **额度明细**：按资源包逐行给出「剩余 / 总量 + 进度条」，标注到期时间与下一轮刷新时间。读的是**周期额度**而不是池额度——池额度在月度资源用完之后仍会报「一点没动、全部还在」。
 - **上下文窗口开关**：可选择按上游声明的默认窗口（300K）或最大窗口（1M）发请求，两版各自独立保存。
 - **多账号快速切换**：按版本（国服 / 国际）各存一份账号列表，切换即时生效，不需要重新走设备授权。新增账号＝登录一次，或从桌面 App 已保存的历史会话里导入某个账号。国服与国际的账号互不可见——两边的令牌不通用，混在一起要到发请求时才失败。登出只登出当前账号，其他账号保留。账号文件以 uid 哈希命名，卡片上只显示 uid 前 8 位，截图不会带出完整标识。
-- **缓存命中率**：卡片直接显示前缀缓存的实际命中率（累计 + 最近一轮 + 统计轮数），数字来自上游每次返回的 `usage`，不是估算。`0 轮` 表示重启后还没请求过，不会显示成 `0%`。
 - **推理档位**：上游声明了可用档位的模型才有档位可选；上游用单数形态声明的档位会被折算成完整阶梯，而不是整个丢掉。
 
 ## 安装
@@ -54,14 +52,16 @@ DSH (pi-ai)  ──OpenAI 协议──▶  127.0.0.1 shim  ──WorkBuddy 协�
 前置条件：DSH 核心 `0.2.0-rc.2` 及以上；Node.js `^22.19.0 || >=24.0.0`。
 
 ```sh
-# 从 npm 安装（推荐）：这样 DSH 能在插件页检查并提示更新
-dsh plugin --profile web add @sixzjd/dsh-workbuddy-connect
+# 从 npm 安装（推荐）
+dsh plugin --profile desktop add @sixzjd/dsh-workbuddy-connect
 
-# 从本地目录安装（开发或跟随未发布源码用；不会收到 DSH 的更新提示）
-dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
+# 从本地目录安装
+dsh plugin --profile desktop add "file:/绝对路径/接入workbuddy"
 ```
 
-按你使用的 profile 换 `--profile` 的值（`web` / `desktop` / `tui`）。装到哪个 profile，数据就落在哪个 profile 目录里，web / desktop / tui 各自独立。
+按实际 profile 换 `--profile` 的值（`web` / `desktop` / `tui`）。web / desktop / tui 各自独立。
+
+强烈推荐桌面端，因为 DSH Desktop 能检测更新。
 
 **为什么用 npm 安装**：DSH 的插件更新检查依赖版本化的包来源（`包名@版本`）。从 npm 安装时，插件页才能识别当前版本、比对 registry 上的新版本并给出更新入口。从 GitHub 或本地路径安装虽然能正常使用，但 DSH 没有可比对的版本号，插件页不会提示更新——升级得手动重装。
 
@@ -117,14 +117,14 @@ dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
 
 **上游没有服务端会话**：每一轮都要把完整历史发回去，插件不会替它压缩。
 
-**模型身份之外还有一处容易漏的**：`supportsImages` 是**平台标记**而不是能力标记——上游几乎给每一行都标 `true`，包括根本收不了图片的模型。所以图片能力另有一张逐 id 复核的表；否则会两头出错：对纯文本模型发图（上游在消息已经落库之后才拒），或者对真能看图的模型收掉图（用户白白少一个能力）。
+**模型身份之外还有一处容易漏的**：`supportsImages` 是**平台标记**而不是能力标记——上游几乎给每一行都标 `true`，包括根本收不了图片的模型。所以图片能力另有一张逐 id 复核的表；否则会两头出错：对纯文本模型发图（上游在消息已经落库之后才拒），或者对真能看图的模型收掉图（导致支持图片的模型无法正常使用该能力）。
 
 **还有一处是国内版专属的坑**：上游的渠道校验会读消息的**行首**，凡是「自报家门成别的客户端」的行首一律拒（`400 / 11128`「Illegal API invocation from an unapproved channel」）——**DSH 系统提示词的第一行恰好就是 "You are an AI agent powered by DeepSeek Harness."**，所以国内版每一条消息都会被拦，而国际版不查这一行、毫发无损。
 
 这里有三层，少修一层都会复发：
 
 1. **system 消息**：首行是该标记就拒（前面多一行、或多一个空格就放行，是字面前缀）。
-2. **assistant 消息**：同样按行首查。这一层最阴——**模型只要把自己的指令复述进回复，下一轮起这整条对话就一直失败**，而代码一个字没改。你遇到的就是这个：第 1 轮正常，切到国内版后的第 2 轮就 11128。
+2. **assistant 消息**：同样按行首查。这一层最容易被忽略——**模型只要把自己的指令复述进回复，下一轮起这整条对话就一直失败**，而代码一个字没改。你遇到的就是这个：第 1 轮正常，切到国内版后的第 2 轮就 11128。
 3. **content 形状**：`content` 既可能是字符串，也可能是 `[{type:'text',text:…}]` 这样的数组块，**两种形态都会查**。只处理字符串的消毒器在数组形态下等于没生效。
 
 插件因此把这句话改写成 "You are an AI coding assistant."：system 消息整条替换，assistant 消息只改行首、**不动句中**（实测句中不拦），**user / tool 一律不碰**（那是你的原话，改了就是篡改对话），数组块只改 `text` 部分、保留图片等结构。国际版那条路径同样受益。
@@ -145,7 +145,7 @@ dsh plugin --profile web add "file:/绝对路径/接入workbuddy"
 **2026-10-31 补记：上面两处的结论都被后续实测部分推翻**。用超大 body 直接问网关（免费模型，请求被拒时不产生输出），网关自己在 `11115` 里报出「测得多少 token / 执行的上限是多少」，于是三件事第一次有了准数：
 
 - **「285KB 以上会挂起」是误判**。同一条线路实测：512KB 8.5 秒、819KB 19 秒、**1.2MB 23 秒、2MB 4.5 秒**全部正常应答，唯一的拒绝理由是 **token 超限**，且报错精确到个位（`prompt is too long: 1200515 tokens > 1048576 maximum`）。当年那个「卡死」其实是撞上了模型的 token 上限。于是 `MAX_DELIVERABLE_BODY_BYTES` 从 350KB 改为 **16MiB**（可用 `DSH_WORKBUDDY_MAX_BODY_BYTES` 覆盖）——它从此只是传输保护，窗口由上游按 token 执行，而 `11115` 本来就已经被改写成宿主能压缩的那种错误。350KB 的旧值危害是具体的：它在约 9 万 token 处**本地伪造 400**（2ms 返回、`inputTokens: 0`，根本没出门），而压缩请求自身同样超限，于是会话既发不出去也压不了。
-- **窗口两个方向都报错了**。`deepseek-v4.1-flash` 与 `kimi-k3.1-pro` 网关实际执行 **1048576**（目录只报 300000，白扔 3.5 倍容量）；而 `hy3`（192000）与 `minimax-m3.1-flash`（300000）实际只给 **100000**——**多报**更糟：宿主压缩阈值是声明窗口的 0.8，声明 192000 就要到 153600 才压，而墙在 100000，于是永远撞墙在压缩之前，压缩请求本身又被同样拒绝，这就是「压缩也压缩不了」的机制。修复在 `catalog.all()` 里加 `MEASURED_CONTEXT_WINDOWS` 覆盖（必须在这一层：磁盘上已保存的目录里，错数字已经烤进 `contextWindow` 字段）。
+- **窗口两个方向都报错了**。`deepseek-v4.1-flash` 与 `kimi-k3.1-pro` 网关实际执行 **1048576**（目录只报 300000，白扔 3.5 倍容量）；而 `hy3`（192000）与 `minimax-m3.1-flash`（300000）实际只给 **100000**——**多报**更糟：宿主压缩阈值是声明窗口的 0.8，声明 192000 就要到 153600 才压，而墙在 100000，于是永远撞墙在压缩之前，压缩请求本身又被同样拒绝，这就是「压缩也压缩不了」的机制。修复在 `catalog.all()` 里加 `MEASURED_CONTEXT_WINDOWS` 覆盖（必须在这一层：磁盘上已保存的目录里，错误数值已被持久化到 `contextWindow` 字段）。
 - **网关不把 `max_tokens` 算进窗口**。CN hy3 实测 `prompt≈70000 + max_tokens=64000`（合计 134000 > 100000）**仍然通过**，所以 128000 的输出预留不会吃掉窗口，按 1048576 声明是安全的。
 - **新的 11128 指纹：这条必须标 `deep`**。国内网关还会按内容指纹拦 harness 的**路径解析段落**（`Tokens prefixed with @ … Relative paths resolve from the workspace root;`），它不含任何产品名，所以 `DeepSeek Harness → DSH` 那条兜底碰不到它。逐句二分：两句**单独**发都放行，只有**紧邻**才被拦。作用域实测与上面那条产品名的规则**不同**——system 与 assistant（**句中同样拦**，不只是行首）会被拦，而 **tool 结果不拦**；非 `deep` 只改写 assistant 行首，句中漏网就等于「模型转述一次，后续每一轮都被拒」，所以这一行标成 `deep`。user 消息照旧不碰（实测多处提及均放行）。
 

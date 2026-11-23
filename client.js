@@ -81,10 +81,6 @@ window.__ModuleLoader__.load({
       accountSwitched: "已切换账号",
       accountRemoved: "已移除账号",
       removeConfirm: "移除这个账号？它的登录信息会从本机删除。",
-      cacheHit: "缓存命中",
-      cacheLast: "最近一轮",
-      cacheTurns: "轮",
-      cacheIdle: "本次启动后还没有请求",
       rateTag: "倍率",
       ctxTag: "上下文",
       imgTag: "图片",
@@ -164,10 +160,6 @@ window.__ModuleLoader__.load({
       accountSwitched: "Account switched",
       accountRemoved: "Account removed",
       removeConfirm: "Remove this account? Its sign-in will be deleted from this machine.",
-      cacheHit: "cache hit",
-      cacheLast: "latest",
-      cacheTurns: "turns",
-      cacheIdle: "no requests yet this session",
       rateTag: "rate",
       ctxTag: "ctx",
       imgTag: "image",
@@ -594,7 +586,6 @@ window.__ModuleLoader__.load({
       const credits = variant?.credits
       const creditAccounts = Array.isArray(credits?.accounts) ? credits.accounts : []
       const creditTotal = credits?.totalSize ?? creditAccounts.reduce((sum, a) => sum + (Number(a.size) || 0), 0)
-      const cache = variant?.cache
 
       return h(React.Fragment, null,
         h("div", null,

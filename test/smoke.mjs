@@ -26,7 +26,6 @@ import {
   WorkBuddyUpstreamClient,
 } from '../lib/upstream.js'
 import { fallbackFor, WorkBuddyCatalog } from '../lib/catalog.js'
-import { accumulateCacheUsage, emptyCacheUsage, usageFromSseText } from '../lib/cachestats.js'
 import { reasoningFields } from '../lib/thinking.js'
 import { MAX_DELIVERABLE_BODY_BYTES, createWorkBuddyShim } from '../lib/shim.js'
 import { modelIdentityKeysOf, WORKBUDDY_VARIANTS } from '../lib/variants.js'
@@ -1282,64 +1281,6 @@ check('a 400 without 11102 is still a client error', () => {
   assert.equal(classifyUpstreamError(400, JSON.stringify({ code: 11133, msg: 'bad param' })), 'client')
 })
 
-console.log('cache stats')
-check('reads usage out of a forwarded event stream', () => {
-  const text = [
-    'data: {"choices":[{"delta":{"content":"hi"}}]}',
-    '',
-    'data: {"choices":[],"usage":{"prompt_tokens":1000,"prompt_tokens_details":{"cached_tokens":900}}}',
-    '',
-    'data: [DONE]',
-    '',
-  ].join('\n')
-  const usage = usageFromSseText(text)
-  assert.equal(usage.prompt_tokens, 1000)
-  assert.equal(usage.prompt_tokens_details.cached_tokens, 900)
-})
-check('an event without usage is skipped, not fatal', () => {
-  assert.equal(usageFromSseText('data: {"choices":[{"delta":{"content":"x"}}]}\n\n'), undefined)
-  assert.equal(usageFromSseText(''), undefined)
-  assert.equal(usageFromSseText(undefined), undefined)
-})
-check('a malformed event does not throw mid-stream', () => {
-  // The relay is already streaming when this runs; an exception here would
-  // break a response the user is watching.
-  assert.equal(usageFromSseText('data: {"usage": broken json\n\n'), undefined)
-  assert.equal(usageFromSseText('data: {"usage":null}\n\n'), undefined)
-})
-check('folds turns into a running hit rate', () => {
-  let state = accumulateCacheUsage(undefined, { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 900 } })
-  assert.equal(state.turns, 1)
-  assert.equal(state.rate, 0.9)
-  assert.equal(state.lastRate, 0.9)
-  state = accumulateCacheUsage(state, { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 1000 } })
-  assert.equal(state.turns, 2)
-  assert.equal(state.promptTokens, 2000)
-  assert.equal(state.cachedTokens, 1900)
-  assert.equal(state.rate, 0.95)
-})
-check('never reports a hit rate above 100%', () => {
-  // The upstream reports cached_tokens separately; a bad value must not turn
-  // into a figure the card would have to apologise for.
-  const state = accumulateCacheUsage(undefined, { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 500 } })
-  assert.equal(state.cachedTokens, 100)
-  assert.equal(state.rate, 1)
-})
-check('a turn with no usage is not counted as a miss', () => {
-  // Aborted streams and some events carry no usage at all. Counting them as
-  // zero-cache turns would drag the average down for no reason.
-  const primed = accumulateCacheUsage(undefined, { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 90 } })
-  assert.equal(accumulateCacheUsage(primed, undefined).rate, primed.rate)
-  assert.equal(accumulateCacheUsage(primed, {}).turns, 1)
-  assert.equal(accumulateCacheUsage(primed, { prompt_tokens: 0 }).turns, 1)
-})
-check('reports a cold first turn as zero, not as missing', () => {
-  const state = accumulateCacheUsage(undefined, { prompt_tokens: 500 })
-  assert.equal(state.turns, 1)
-  assert.equal(state.rate, 0)
-  assert.equal(state.lastRate, 0)
-})
-
 await checkAsync('a transport failure on the CN chat host falls back to codebuddy.cn', async () => {
   // copilot.tencent.com is intermittently unreachable while the same endpoint
   // on www.codebuddy.cn answers 200. A transport failure there used to surface
@@ -1402,50 +1343,6 @@ await checkAsync('a withdrawn model answers 404 and names the model', async () =
     const body = await res.text()
     assert.match(body, /hy4flash-free/)
     assert.match(body, /[Ss]witch to another model/)
-  } finally {
-    await shim.close()
-  }
-})
-
-await checkAsync('the shim reports usage on both the streaming and the plain path', async () => {
-  // Both paths matter: a streaming client is the common case, and a client that
-  // asked for no stream still gets served by reassembling the upstream's stream.
-  // The plain path was wired through the SSE scanner at first and silently
-  // reported nothing, so both are asserted here rather than just one.
-  const eventStream = () => new Response(
-    [
-      'data: {"choices":[{"delta":{"content":"hi"}}],"model":"hy4free"}',
-      '',
-      'data: {"choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":1750}}}',
-      '',
-      'data: [DONE]',
-      '',
-    ].join('\n'),
-    { status: 200, headers: { 'content-type': 'text/event-stream' } },
-  )
-  const seen = []
-  const shim = createWorkBuddyShim({
-    store: { resolve: async () => ({ accessToken: 'fake', uid: 'u', region: 'cn' }) },
-    client: { chatStream: async () => ({ ok: true, response: eventStream() }) },
-    catalog: { current: () => [], all: () => [] },
-    logger: { warn() {}, error() {}, info() {}, debug() {} },
-    prepareBody: (raw) => raw,
-    onUsage: (usage) => seen.push(usage),
-  })
-  await shim.ready
-  try {
-    for (const stream of [true, false]) {
-      const res = await fetch(`${shim.baseUrl()}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${shim.token()}` },
-        body: JSON.stringify({ model: 'hy4free', messages: [{ role: 'user', content: 'hi' }], stream }),
-      })
-      await res.text()
-      assert.equal(res.status, 200)
-    }
-    assert.equal(seen.length, 2, 'one report per request')
-    assert.equal(seen[0].prompt_tokens, 2000)
-    assert.equal(seen[0].prompt_tokens_details.cached_tokens, 1750)
   } finally {
     await shim.close()
   }
